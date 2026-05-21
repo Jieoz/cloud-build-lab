@@ -148,6 +148,8 @@ namespace TrOCR
                 IniHelper.SetValue("工具栏", "翻译", "False");
                 IniHelper.SetValue("工具栏", "顶置", "True");
                 IniHelper.SetValue("取色器", "类型", "RGB");
+                IniHelper.SetValue("密钥_Mathpix", "app_id", "请输入app_id");
+                IniHelper.SetValue("密钥_Mathpix", "app_key", "请输入app_key");
             }
         }
 
@@ -342,6 +344,16 @@ namespace TrOCR
             if (IniHelper.GetValue("特殊", "ali_password") == "发生错误")
             {
                 IniHelper.SetValue("特殊", "ali_password", "");
+            }
+
+            if (IniHelper.GetValue("密钥_Mathpix", "app_id") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_Mathpix", "app_id", "请输入app_id");
+            }
+
+            if (IniHelper.GetValue("密钥_Mathpix", "app_key") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_Mathpix", "app_key", "请输入app_key");
             }
         }
     }

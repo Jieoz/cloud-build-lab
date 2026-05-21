@@ -4125,6 +4125,14 @@ namespace TrOCR
 			split_txt = "";
 			try
 			{
+				var filePath = AppDomain.CurrentDomain.BaseDirectory + "Data\\config.ini";
+				var mathpixAppId = HelpWin32.IniFileHelper.GetValue("密钥_Mathpix", "app_id", filePath);
+				var mathpixAppKey = HelpWin32.IniFileHelper.GetValue("密钥_Mathpix", "app_key", filePath);
+				if (mathpixAppId == "发生错误" || mathpixAppKey == "发生错误" || string.IsNullOrWhiteSpace(mathpixAppId) || string.IsNullOrWhiteSpace(mathpixAppKey) || mathpixAppId == "请输入app_id" || mathpixAppKey == "请输入app_key")
+				{
+					RichBoxBody.Text = "***请先在 Data\\config.ini 的 [密钥_Mathpix] 中填写 app_id 和 app_key***";
+					return;
+				}
 				var img = image_screen;
 				var inArray = OcrHelper.ImgToBytes(img);
 				var s = "{\t\"formats\": [\"latex_styled\", \"text\"],\t\"metadata\": {\t\t\"count\": 0,\t\t\"platform\": \"windows 10\",\t\t\"skip_recrop\": true,\t\t\"user_id\": \"\",\t\t\"version\": \"snip.windows@01.02.0027\"\t},\t\"ocr\": [\"text\", \"math\"],\t\"src\": \"data:image/jpeg;base64," + Convert.ToBase64String(inArray) + "\"}";
@@ -4134,8 +4142,8 @@ namespace TrOCR
 				httpWebRequest.ContentType = "application/json";
 				httpWebRequest.Timeout = 8000;
 				httpWebRequest.ReadWriteTimeout = 5000;
-				httpWebRequest.Headers.Add("app_id: mathpix_chrome");
-				httpWebRequest.Headers.Add("app_key: 85948264c5d443573286752fbe8df361");
+				httpWebRequest.Headers.Add("app_id: " + mathpixAppId);
+				httpWebRequest.Headers.Add("app_key: " + mathpixAppKey);
 				using (var requestStream = httpWebRequest.GetRequestStream())
 				{
 					requestStream.Write(bytes, 0, bytes.Length);
