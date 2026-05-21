@@ -2,6 +2,12 @@ name: Build MotoChargeBoostToggle APK
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release and upload APK'
+        required: false
+        default: false
+        type: boolean
   push:
     paths:
       - 'projects/moto-chargeboost-toggle/**'
@@ -46,3 +52,17 @@ jobs:
         with:
           name: moto-chargeboost-toggle-debug-apk
           path: projects/moto-chargeboost-toggle/app/build/outputs/apk/debug/*.apk
+
+      - name: Generate release metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        run: |
+          echo "RELEASE_TAG=moto-chargeboost-toggle-$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: MotoChargeBoostToggle ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          files: projects/moto-chargeboost-toggle/app/build/outputs/apk/debug/*.apk
