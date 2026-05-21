@@ -28,55 +28,7 @@ namespace TrOCR.Helper
 
         public static void AddLog(string str)
         {
-            str = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + str + "\r\n";
-            var path = Path.Combine(Environment.CurrentDirectory, "Log");
-            TryPruneLogFiles(path, 3);
-            if (Directory.Exists(path))
-            {
-                try
-                {
-                    File.AppendAllText(Path.Combine(path, DateTime.Now.ToString("yyyy_MM_dd") + ".log"), str, Encoding.Default);
-                }
-                catch (Exception)
-                {
-                    //文件被占用
-                }
-            }
-            else
-            {
-                Directory.CreateDirectory(path);
-                var fs = File.Create(Path.Combine(path, DateTime.Now.ToString("yyyy_MM_dd") + ".log"));
-                fs.Write(Encoding.Default.GetBytes(str), 0, Encoding.Default.GetBytes(str).Length);
-                fs.Close();
-            }
-        }
-
-        public static void TryPruneLogFiles(string path, int keepLatest)
-        {
-            try
-            {
-                if (!Directory.Exists(path))
-                {
-                    return;
-                }
-                var files = new DirectoryInfo(path)
-                    .GetFiles("*.log")
-                    .OrderByDescending(f => f.LastWriteTimeUtc)
-                    .ToList();
-                foreach (var file in files.Skip(keepLatest))
-                {
-                    try
-                    {
-                        file.Delete();
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-            catch
-            {
-            }
+            return;
         }
 
         public static string ClipForLog(string text, int max = 400)
