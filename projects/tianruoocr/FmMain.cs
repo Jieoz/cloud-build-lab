@@ -3613,8 +3613,85 @@ namespace TrOCR
 
 		private string TranslateBaidu(string content)
 		{
-            CommonHelper.AddLog("[Translate_Baidu] selected chars=" + content.Length + " -> disabled old endpoint");
-			return "[百度翻译暂未启用]：\r\n当前测试版已停用旧的百度网页/私有接口。\r\n如需恢复百度翻译，请提供官方百度翻译 API 的 app_id/app_key。";
+			var text = "";
+			try
+			{
+				var from = "zh";
+				var to = "en";
+				if (StaticValue.ZH2EN)
+				{
+					if (ch_count(content.Trim()) > en_count(content.Trim()) || (en_count(content.Trim()) == 1 && ch_count(content.Trim()) == 1))
+					{
+						from = "zh";
+						to = "en";
+					}
+					else
+					{
+						from = "en";
+						to = "zh";
+					}
+				}
+				if (StaticValue.ZH2JP)
+				{
+					if (contain_jap(replaceStr(Del_ch(content.Trim()))))
+					{
+						from = "jp";
+						to = "zh";
+					}
+					else
+					{
+						from = "zh";
+						to = "jp";
+					}
+				}
+				if (StaticValue.ZH2KO)
+				{
+					if (contain_kor(content.Trim()))
+					{
+						from = "kor";
+						to = "zh";
+					}
+					else
+					{
+						from = "zh";
+						to = "kor";
+					}
+				}
+                var filePath = AppDomain.CurrentDomain.BaseDirectory + "Data\\config.ini";
+                var appId = HelpWin32.IniFileHelper.GetValue("密钥_百度翻译", "app_id", filePath);
+                var appKey = HelpWin32.IniFileHelper.GetValue("密钥_百度翻译", "app_key", filePath);
+                if (appId == "发生错误" || appKey == "发生错误" || string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(appKey) || appId.Contains("请输入") || appKey.Contains("请输入"))
+                {
+                    return "[百度翻译未配置]：\r\n请先在 Data\\config.ini 的 [密钥_百度翻译] 中填写 app_id 和 app_key。";
+                }
+                var salt = DateTime.Now.Ticks.ToString();
+                var sign = CommonHelper.Md5(appId + content + salt + appKey);
+                var url = "https://fanyi-api.baidu.com/api/trans/vip/translate";
+                var data = "q=" + HttpUtility.UrlEncode(content) + "&from=" + from + "&to=" + to + "&appid=" + appId + "&salt=" + salt + "&sign=" + sign;
+                CommonHelper.AddLog("[Translate_Baidu] start from=" + from + " to=" + to + " chars=" + content.Length + " appid=" + appId);
+                var html = CommonHelper.PostData(url, data);
+                CommonHelper.AddLog("[Translate_Baidu] response=" + CommonHelper.ClipForLog(html));
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    throw new Exception("baidu translate empty response");
+                }
+                var obj = (JObject)JsonConvert.DeserializeObject(html);
+                if (obj["error_code"] != null)
+                {
+                    throw new Exception("baidu translate api error: " + obj["error_code"] + " " + obj["error_msg"]);
+                }
+                var arr = (JArray)obj["trans_result"];
+                foreach (var item in arr)
+                {
+                    text += item["dst"].ToString();
+                }
+			}
+			catch (Exception ex)
+			{
+                CommonHelper.AddLog("[Translate_Baidu] error=" + ex);
+				text = "[百度接口报错]：\r\n请把 Log 目录里的日志文件发给我继续排查。";
+			}
+            return text;
 		}
 
 		public void Trans_tencent_Click(object sender, EventArgs e)
