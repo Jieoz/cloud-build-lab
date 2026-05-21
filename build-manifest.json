@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "repo": "Jieoz/cloud-build-lab",
+  "defaults": {
+    "releaseInputName": "release",
+    "artifactFetchHelper": "/home/node/.openclaw/workspace/scripts/github_actions_wait_and_fetch_artifact.py",
+    "apiCommitHelper": "/home/node/.openclaw/workspace/scripts/github_repo_commit_via_api.py"
+  },
+  "projects": {
+    "moto-chargeboost-toggle": {
+      "kind": "android-apk",
+      "sourcePath": "projects/moto-chargeboost-toggle",
+      "workflow": "build-moto-chargeboost-toggle.yml",
+      "artifactName": "moto-chargeboost-toggle-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
+    },
+    "tianruoocr": {
+      "kind": "windows-exe-zip",
+      "sourcePath": "projects/tianruoocr",
+      "workflow": "build-tianruoocr.yml",
+      "artifactName": "tianruoocr-fixed-google-translation",
+      "deliveryType": "zip",
+      "releaseAssetPattern": "*.zip"
+    }
+  }
+}
