@@ -7,7 +7,7 @@ Cloud build lab for Jay's APK/EXE experiments.
 ### 1. moto-chargeboost-toggle
 - Source: imported from local workspace `deliverables/moto-chargeboost-toggle`
 - Workflow: `.github/workflows/build-moto-chargeboost-toggle.yml`
-- Current blocker for GitHub Actions: project currently does **not** include a Gradle wrapper (`gradlew`, `gradle/wrapper/*`).
+- CI note: project currently does **not** include a Gradle wrapper (`gradlew`, `gradle/wrapper/*`), so the workflow uses GitHub Actions' Gradle setup instead of `./gradlew`.
 
 ## Notes
 - This repo is meant to hold clean CI-friendly copies or mirrors of buildable projects.
