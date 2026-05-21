@@ -61,8 +61,12 @@ jobs:
       - name: Create GitHub Release
         if: github.event_name == 'workflow_dispatch' && inputs.release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: MotoChargeBoostToggle ${{ env.RELEASE_TAG }}
           generate_release_notes: true
+          draft: false
+          prerelease: false
           files: projects/moto-chargeboost-toggle/app/build/outputs/apk/debug/*.apk
