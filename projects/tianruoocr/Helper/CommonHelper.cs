@@ -49,6 +49,20 @@ namespace TrOCR.Helper
             }
         }
 
+        public static string ClipForLog(string text, int max = 400)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return "<empty>";
+            }
+            text = text.Replace("\r", "\\r").Replace("\n", "\\n");
+            if (text.Length <= max)
+            {
+                return text;
+            }
+            return text.Substring(0, max) + "...(truncated)";
+        }
+
         public static string GetHtmlContent(string url, int userAgent = 0, Dictionary<string, string> headers = null)
         {
             try

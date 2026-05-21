@@ -1112,7 +1112,9 @@ namespace TrOCR
 				}
                 var url = string.Concat("https://translate.googleapis.com/translate_a/single?client=gtx&sl=", text3,
                     "&tl=", text4, "&dt=t&q=", HttpUtility.UrlEncode(text)?.Replace("+", "%20"));
+                CommonHelper.AddLog("[Translate_Google] start sl=" + text3 + " tl=" + text4 + " chars=" + text.Length + " url=" + url);
                 var html = GetGoogleTranslateHtml(url);
+                CommonHelper.AddLog("[Translate_Google] response=" + CommonHelper.ClipForLog(html));
                 if (string.IsNullOrWhiteSpace(html))
                 {
                     throw new Exception("google translate empty response");
@@ -1125,9 +1127,10 @@ namespace TrOCR
 					text2 += jArray[0][i][0].ToString();
 				}
 			}
-			catch (Exception)
+			catch (Exception ex)
 			{
-				text2 = "[谷歌接口报错]：\r\n1.当前网络可能无法直连 Google。\r\n2.已改为不走系统代理，但如果本机/网络层拦截 Google 仍会失败。\r\n3.百度/腾讯旧网页接口已失效，需要改用官方翻译 API。";
+                CommonHelper.AddLog("[Translate_Google] error=" + ex);
+				text2 = "[谷歌接口报错]：\r\n1.当前网络可能无法直连 Google。\r\n2.已改为不走系统代理，但如果本机/网络层拦截 Google 仍会失败。\r\n3.请把 Log 目录里的日志文件发给我继续排查。";
 			}
 			return text2;
 		}
@@ -1144,10 +1147,12 @@ namespace TrOCR
 			httpWebRequest.Accept = "application/json,text/plain,*/*";
 			httpWebRequest.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 			httpWebRequest.Headers[HttpRequestHeader.AcceptLanguage] = "zh-CN,zh;q=0.9,en;q=0.8";
+            CommonHelper.AddLog("[Translate_Google] proxy=null ua=" + httpWebRequest.UserAgent);
 			using (var httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
 			using (var responseStream = httpWebResponse.GetResponseStream())
 			using (var streamReader = new StreamReader(responseStream, Encoding.UTF8))
 			{
+                CommonHelper.AddLog("[Translate_Google] status=" + (int)httpWebResponse.StatusCode + " contentType=" + httpWebResponse.ContentType);
 				result = streamReader.ReadToEnd();
 			}
 			return result;
@@ -3608,6 +3613,7 @@ namespace TrOCR
 
 		private string TranslateBaidu(string content)
 		{
+            CommonHelper.AddLog("[Translate_Baidu] selected chars=" + content.Length + " -> disabled old endpoint");
 			return "[百度翻译暂未启用]：\r\n当前测试版已停用旧的百度网页/私有接口。\r\n如需恢复百度翻译，请提供官方百度翻译 API 的 app_id/app_key。";
 		}
 
@@ -3638,6 +3644,7 @@ namespace TrOCR
 
 		private string Translate_Tencent(string strTrans)
 		{
+            CommonHelper.AddLog("[Translate_Tencent] selected chars=" + strTrans.Length + " -> disabled old endpoint");
 			return "[腾讯翻译暂未启用]：\r\n当前测试版已停用旧的腾讯网页接口。\r\n如需恢复腾讯翻译，请提供官方腾讯云机器翻译 API 的 secret_id/secret_key。";
 		}
 
@@ -3901,9 +3908,10 @@ namespace TrOCR
 					text2 += jArray[0][i][0].ToString();
 				}
 			}
-			catch (Exception)
+			catch (Exception ex)
 			{
-				text2 = "[谷歌接口报错]：\r\n当前网络可能无法直连 Google。\r\n本版本已绕过系统代理；若仍失败，说明本机或网络层拦截了 Google。";
+                CommonHelper.AddLog("[Translate_Googlekey] error=" + ex);
+				text2 = "[谷歌接口报错]：\r\n当前网络可能无法直连 Google。\r\n本版本已绕过系统代理；若仍失败，说明本机或网络层拦截了 Google。\r\n请把 Log 目录里的日志文件发给我。";
 			}
 			return text2;
 		}
