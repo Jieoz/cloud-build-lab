@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">疾速快充助手</string>
+    <string name="title_main">Moto 疾速快充助手</string>
+    <string name="desc_main">把藏得很深的“疾速快充”入口尽量拉到眼前。</string>
+    <string name="open_chargeboost_page">打开疾速快充页面</string>
+    <string name="open_accessibility_settings">打开无障碍设置</string>
+    <string name="toggle_with_assist">一键切换（需开启无障碍辅助）</string>
+    <string name="hint_accessibility">想做到更像真正的一键开关，需要你手动给本 app 开启无障碍服务；开启后，它可以自动进入页面并点击“疾速快充”开关。</string>
+    <string name="hint_not_enabled">无障碍辅助还没开启。</string>
+    <string name="hint_enabled">无障碍辅助已开启，可尝试一键切换。</string>
+    <string name="status_checking">正在检查支持情况…</string>
+    <string name="status_ready_direct">已找到直达页面，可直接打开。</string>
+    <string name="status_ready_assist">已找到页面且无障碍已开启，可尝试一键切换。</string>
+    <string name="status_unavailable">当前机型/系统上没发现可用入口。</string>
+    <string name="toast_opening">正在打开目标页面…</string>
+    <string name="toast_assist_start">正在尝试自动切换…</string>
+    <string name="toast_no_target">系统里没找到目标页面，可能机型/版本不一致。</string>
+    <string name="toast_tile_opening">正在从快捷开关打开疾速快充…</string>
+    <string name="shortcut_open_chargeboost_short">打开疾速快充</string>
+    <string name="shortcut_open_chargeboost_long">直接打开疾速快充页面</string>
+    <string name="widget_title">疾速快充</string>
+    <string name="widget_desc">点一下打开疾速快充页面</string>
+</resources>

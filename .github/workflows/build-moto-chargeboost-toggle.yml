@@ -1,0 +1,46 @@
+name: Build MotoChargeBoostToggle APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'projects/moto-chargeboost-toggle/**'
+      - '.github/workflows/build-moto-chargeboost-toggle.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: projects/moto-chargeboost-toggle
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare project for CI
+        run: |
+          rm -f local.properties
+          sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties || true
+          test -f settings.gradle.kts
+          test -f build.gradle.kts
+          test -f app/build.gradle.kts
+          test -x ./gradlew
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: moto-chargeboost-toggle-debug-apk
+          path: projects/moto-chargeboost-toggle/app/build/outputs/apk/debug/*.apk

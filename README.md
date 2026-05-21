@@ -1,2 +1,15 @@
 # cloud-build-lab
-openclaw-cloud-build-lab
+
+Cloud build lab for Jay's APK/EXE experiments.
+
+## Current projects
+
+### 1. moto-chargeboost-toggle
+- Source: imported from local workspace `deliverables/moto-chargeboost-toggle`
+- Workflow: `.github/workflows/build-moto-chargeboost-toggle.yml`
+- Current blocker for GitHub Actions: project currently does **not** include a Gradle wrapper (`gradlew`, `gradle/wrapper/*`).
+
+## Notes
+- This repo is meant to hold clean CI-friendly copies or mirrors of buildable projects.
+- Local-only builder assumptions (for example `/opt/android-sdk` in `local.properties`) should be stripped or adapted for GitHub Actions.
+- A second APK project will be added after its current source root is recovered in the workspace.
