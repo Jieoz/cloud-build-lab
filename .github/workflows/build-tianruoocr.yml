@@ -1,0 +1,88 @@
+name: Build TianRuoOCR EXE
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release and upload zip'
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - 'projects/tianruoocr/**'
+      - '.github/workflows/build-tianruoocr.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: projects/tianruoocr
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore packages if present
+        shell: pwsh
+        run: |
+          if (Test-Path .\packages.config) {
+            nuget restore .\TrOCR.sln
+          } else {
+            Write-Host 'No packages.config found; skipping restore.'
+          }
+
+      - name: Build Release x86
+        run: msbuild .\TrOCR.sln /t:Build /p:Configuration=Release /p:Platform=x86
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $stage = Join-Path $PWD 'dist\天若OCR文字识别'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item .\bin\Release\* $stage -Recurse -Force
+          if (Test-Path .\Data) { Copy-Item .\Data $stage -Recurse -Force }
+          if (Test-Path .\DLL) { Copy-Item .\DLL $stage -Recurse -Force }
+          if (Test-Path .\README.md) { Copy-Item .\README.md $stage -Force }
+
+      - name: Create zip
+        shell: pwsh
+        run: |
+          $dist = Join-Path $PWD 'dist'
+          $zip = Join-Path $dist 'tianruoocr-fixed-google-translation.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $dist '天若OCR文字识别') -DestinationPath $zip
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tianruoocr-fixed-google-translation
+          path: projects/tianruoocr/dist/tianruoocr-fixed-google-translation.zip
+
+      - name: Generate release metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        shell: pwsh
+        run: |
+          "RELEASE_TAG=tianruoocr-$(Get-Date -Format 'yyyy.MM.dd-HHmmss')" >> $env:GITHUB_ENV
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: TianRuoOCR ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: projects/tianruoocr/dist/tianruoocr-fixed-google-translation.zip
