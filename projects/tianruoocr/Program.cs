@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,7 @@ namespace TrOCR
                 CommonHelper.ShowHelpMsg("软件已经运行");
                 return;
             }
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
             InitConfig();
             DealErrorConfig();
             Application.EnableVisualStyles();
@@ -128,7 +130,7 @@ namespace TrOCR
                 IniHelper.SetValue("快捷键", "识别界面", "请按下快捷键");
                 IniHelper.SetValue("密钥_百度", "secret_id", "YsZKG1wha34PlDOPYaIrIIKO");
                 IniHelper.SetValue("密钥_百度", "secret_key", "HPRZtdOHrdnnETVsZM2Nx7vbDkMfxrkD");
-                IniHelper.SetValue("代理", "代理类型", "系统代理");
+                IniHelper.SetValue("代理", "代理类型", "不使用代理");
                 IniHelper.SetValue("代理", "服务器", "");
                 IniHelper.SetValue("代理", "端口", "");
                 IniHelper.SetValue("代理", "需要密码", "False");
@@ -150,6 +152,10 @@ namespace TrOCR
                 IniHelper.SetValue("取色器", "类型", "RGB");
                 IniHelper.SetValue("密钥_Mathpix", "app_id", "请输入app_id");
                 IniHelper.SetValue("密钥_Mathpix", "app_key", "请输入app_key");
+                IniHelper.SetValue("密钥_百度翻译", "app_id", "请输入百度翻译app_id");
+                IniHelper.SetValue("密钥_百度翻译", "app_key", "请输入百度翻译app_key");
+                IniHelper.SetValue("密钥_腾讯翻译", "secret_id", "请输入腾讯翻译secret_id");
+                IniHelper.SetValue("密钥_腾讯翻译", "secret_key", "请输入腾讯翻译secret_key");
             }
         }
 
@@ -232,7 +238,7 @@ namespace TrOCR
 
             if (IniHelper.GetValue("代理", "代理类型") == "发生错误")
             {
-                IniHelper.SetValue("代理", "代理类型", "系统代理");
+                IniHelper.SetValue("代理", "代理类型", "不使用代理");
             }
 
             if (IniHelper.GetValue("代理", "服务器") == "发生错误")
@@ -354,6 +360,26 @@ namespace TrOCR
             if (IniHelper.GetValue("密钥_Mathpix", "app_key") == "发生错误")
             {
                 IniHelper.SetValue("密钥_Mathpix", "app_key", "请输入app_key");
+            }
+
+            if (IniHelper.GetValue("密钥_百度翻译", "app_id") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_百度翻译", "app_id", "请输入百度翻译app_id");
+            }
+
+            if (IniHelper.GetValue("密钥_百度翻译", "app_key") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_百度翻译", "app_key", "请输入百度翻译app_key");
+            }
+
+            if (IniHelper.GetValue("密钥_腾讯翻译", "secret_id") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_腾讯翻译", "secret_id", "请输入腾讯翻译secret_id");
+            }
+
+            if (IniHelper.GetValue("密钥_腾讯翻译", "secret_key") == "发生错误")
+            {
+                IniHelper.SetValue("密钥_腾讯翻译", "secret_key", "请输入腾讯翻译secret_key");
             }
         }
     }

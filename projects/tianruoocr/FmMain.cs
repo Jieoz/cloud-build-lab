@@ -1112,7 +1112,11 @@ namespace TrOCR
 				}
                 var url = string.Concat("https://translate.googleapis.com/translate_a/single?client=gtx&sl=", text3,
                     "&tl=", text4, "&dt=t&q=", HttpUtility.UrlEncode(text)?.Replace("+", "%20"));
-                var html = CommonHelper.GetHtmlContent(url);
+                var html = GetGoogleTranslateHtml(url);
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    throw new Exception("google translate empty response");
+                }
 
 				var jArray = (JArray)JsonConvert.DeserializeObject(html);
 				var count = ((JArray)jArray[0]).Count;
@@ -1123,9 +1127,30 @@ namespace TrOCR
 			}
 			catch (Exception)
 			{
-				text2 = "[谷歌接口报错]：\r\n1.网络错误或者文本过长。\r\n2.谷歌接口可能对于某些网络不能用，具体不清楚。可以尝试挂VPN试试。\r\n3.这个问题我没办法修复，请右键菜单更换百度、腾讯翻译接口。";
+				text2 = "[谷歌接口报错]：\r\n1.当前网络可能无法直连 Google。\r\n2.已改为不走系统代理，但如果本机/网络层拦截 Google 仍会失败。\r\n3.百度/腾讯旧网页接口已失效，需要改用官方翻译 API。";
 			}
 			return text2;
+		}
+
+		private string GetGoogleTranslateHtml(string url)
+		{
+			var result = "";
+			var httpWebRequest = WebRequest.Create(url) as HttpWebRequest;
+			httpWebRequest.Method = "GET";
+			httpWebRequest.Timeout = 15000;
+			httpWebRequest.ReadWriteTimeout = 15000;
+			httpWebRequest.Proxy = null;
+			httpWebRequest.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+			httpWebRequest.Accept = "application/json,text/plain,*/*";
+			httpWebRequest.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+			httpWebRequest.Headers[HttpRequestHeader.AcceptLanguage] = "zh-CN,zh;q=0.9,en;q=0.8";
+			using (var httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse())
+			using (var responseStream = httpWebResponse.GetResponseStream())
+			using (var streamReader = new StreamReader(responseStream, Encoding.UTF8))
+			{
+				result = streamReader.ReadToEnd();
+			}
+			return result;
 		}
 
 		public static string CookieCollectionToStrCookie(CookieCollection cookie)
@@ -3583,66 +3608,7 @@ namespace TrOCR
 
 		private string TranslateBaidu(string content)
 		{
-			var text = "";
-			try
-			{
-				new CookieContainer();
-				var text2 = "zh";
-				var text3 = "en";
-				if (StaticValue.ZH2EN)
-				{
-					if (ch_count(content.Trim()) > en_count(content.Trim()) || (en_count(content.Trim()) == 1 && ch_count(content.Trim()) == 1))
-					{
-						text2 = "zh";
-						text3 = "en";
-					}
-					else
-					{
-						text2 = "en";
-						text3 = "zh";
-					}
-				}
-				if (StaticValue.ZH2JP)
-				{
-					if (contain_jap(replaceStr(Del_ch(content.Trim()))))
-					{
-						text2 = "jp";
-						text3 = "zh";
-					}
-					else
-					{
-						text2 = "zh";
-						text3 = "jp";
-					}
-				}
-				if (StaticValue.ZH2KO)
-				{
-					if (contain_kor(content.Trim()))
-					{
-						text2 = "kor";
-						text3 = "zh";
-					}
-					else
-					{
-						text2 = "zh";
-						text3 = "kor";
-					}
-				}
-//                var html = CommonHelper.PostStrData("https://fanyi.baidu.com/basetrans",
-//                    string.Concat("query=", HttpUtility.UrlEncode(Text.Trim()).Replace("+", "%20"), "&from=", text2,
-//                        "&to=", text3));
-                var html = TranslateHelper.BdTrans(content.Trim(), text2, text3);
-				var jArray = JArray.Parse(((JObject)JsonConvert.DeserializeObject(html))["fanyi_list"].ToString());
-				foreach (var arr in jArray)
-                {
-                    text = text + arr + "\r\n";
-                }
-			}
-			catch (Exception)
-			{
-				text = "[百度接口报错]：\r\n1.接口请求出现问题等待修复。";
-			}
-			return text;
+			return "[百度翻译暂未启用]：\r\n当前测试版已停用旧的百度网页/私有接口。\r\n如需恢复百度翻译，请提供官方百度翻译 API 的 app_id/app_key。";
 		}
 
 		public void Trans_tencent_Click(object sender, EventArgs e)
@@ -3672,62 +3638,7 @@ namespace TrOCR
 
 		private string Translate_Tencent(string strTrans)
 		{
-			var text = "";
-			try
-			{
-				var from = "zh";
-				var to = "en";
-				if (StaticValue.ZH2EN)
-				{
-					if (ch_count(strTrans.Trim()) > en_count(strTrans.Trim()) || (en_count(text.Trim()) == 1 && ch_count(text.Trim()) == 1))
-					{
-						from = "zh";
-						to = "en";
-					}
-					else
-					{
-						from = "en";
-						to = "zh";
-					}
-				}
-				if (StaticValue.ZH2JP)
-				{
-					if (contain_jap(replaceStr(Del_ch(strTrans.Trim()))))
-					{
-						from = "jp";
-						to = "zh";
-					}
-					else
-					{
-						from = "zh";
-						to = "jp";
-					}
-				}
-				if (StaticValue.ZH2KO)
-				{
-					if (contain_kor(strTrans.Trim()))
-					{
-						from = "kr";
-						to = "zh";
-					}
-					else
-					{
-						from = "zh";
-						to = "kr";
-					}
-				}
-				var jArray = JArray.Parse(((JObject)JsonConvert.DeserializeObject(TencentPOST("https://fanyi.qq.com/api/translate", Content_Length(strTrans, from, to))))["translate"]["records"].ToString());
-				foreach (var t in jArray)
-                {
-                    var jObject = JObject.Parse(t.ToString());
-                    text += jObject["targetText"].ToString();
-                }
-			}
-			catch (Exception)
-			{
-				text = "[腾讯接口报错]：\r\n1.接口请求出现问题等待修复。";
-			}
-			return text;
+			return "[腾讯翻译暂未启用]：\r\n当前测试版已停用旧的腾讯网页接口。\r\n如需恢复腾讯翻译，请提供官方腾讯云机器翻译 API 的 secret_id/secret_key。";
 		}
 
 		public void BdTableOCR()
@@ -3978,7 +3889,12 @@ namespace TrOCR
 				}
 				var url = string.Concat("https://translate.googleapis.com/translate_a/single?client=gtx&sl=", text3,
 					"&tl=", text4, "&dt=t&q=", HttpUtility.UrlEncode(text).Replace("+", "%20"));
-				var jArray = (JArray)JsonConvert.DeserializeObject(CommonHelper.GetHtmlContent(url));
+				var html = GetGoogleTranslateHtml(url);
+                if (string.IsNullOrWhiteSpace(html))
+                {
+                    throw new Exception("google translate empty response");
+                }
+				var jArray = (JArray)JsonConvert.DeserializeObject(html);
 				var count = ((JArray)jArray[0]).Count;
 				for (var i = 0; i < count; i++)
 				{
@@ -3987,7 +3903,7 @@ namespace TrOCR
 			}
 			catch (Exception)
 			{
-				text2 = "[谷歌接口报错]：\r\n出现这个提示文字，表示您当前的网络不适合使用谷歌接口。\r\n请放弃使用谷歌接口，腾讯，百度接口都可以正常使用。";
+				text2 = "[谷歌接口报错]：\r\n当前网络可能无法直连 Google。\r\n本版本已绕过系统代理；若仍失败，说明本机或网络层拦截了 Google。";
 			}
 			return text2;
 		}
