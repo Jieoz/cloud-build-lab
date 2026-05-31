@@ -9,7 +9,7 @@ on:
       release:
         description: 'Create GitHub Release and upload zip'
         required: false
-        default: false
+        default: true
         type: boolean
   push:
     paths:
@@ -110,3 +110,17 @@ jobs:
                 await github.rest.git.deleteRef({ owner, repo, ref: `tags/${rel.tag_name}` });
               }
             }
+
+      - name: Notify Telegram on failure
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ] && exit 0
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "text=❌ cloud-build-lab: TianRuoOCR 构建失败%0Arun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > /dev/null || true
