@@ -1,4 +1,4 @@
-name: Build XVideoCatcher APK
+name: Build X Video Catcher APK
 
 permissions:
   contents: write
@@ -47,8 +47,28 @@ jobs:
           test -f build.gradle.kts || test -f build.gradle
           test -f app/build.gradle.kts || test -f app/build.gradle
 
+      - name: Run unit tests
+        run: gradle --no-daemon testDebugUnitTest
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+
+      - name: Verify Xposed module contract in APK
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "apk=$APK build-tools=$BT"
+          # The framework loads the module by the class named in assets/xposed_init.
+          # A missing or misspelled entry means LSPosed silently ignores the module.
+          ENTRY=$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')
+          test "$ENTRY" = "com.jiesa.xvideocatcher.XVideoCatcherModule"
+          # xposedminversion is what marks this as a legacy module to LSPosed.
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -q 'xposedminversion'
+          # The Xposed API must stay provided-only; a bundled copy breaks hooking.
+          unzip -l "$APK" | grep -q 'classes.dex'
+          test -z "$(unzip -l "$APK" | grep -i 'de/robv/android/xposed' || true)"
+          echo "module contract OK: entry=$ENTRY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -68,7 +88,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: XVideoCatcher ${{ env.RELEASE_TAG }}
+          name: X Video Catcher ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           draft: false
           prerelease: false

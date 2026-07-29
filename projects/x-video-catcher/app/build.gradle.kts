@@ -33,4 +33,6 @@ android {
 dependencies {
     // Provided by the Xposed/LSPosed framework at runtime — never packaged into the APK.
     compileOnly("de.robv.android.xposed:api:82")
+
+    testImplementation("junit:junit:4.13.2")
 }
