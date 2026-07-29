@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Packages the module wants to hook. X ships under both names historically. -->
+    <string-array name="xposedscope">
+        <item>com.twitter.android</item>
+        <item>com.twitter.android.beta</item>
+    </string-array>
+</resources>

@@ -22,6 +22,14 @@
       "artifactName": "tianruoocr-fixed-google-translation",
       "deliveryType": "zip",
       "releaseAssetPattern": "*.zip"
+    },
+    "x-video-catcher": {
+      "kind": "android-apk",
+      "sourcePath": "projects/x-video-catcher",
+      "workflow": "build-x-video-catcher.yml",
+      "artifactName": "x-video-catcher-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
     }
   }
 }
