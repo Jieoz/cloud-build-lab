@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Needed to read X's version into the export header; X is not otherwise
+         visible to us under API 30+ package filtering. -->
+    <queries>
+        <package android:name="com.twitter.android" />
+        <package android:name="com.twitter.android.beta" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@android:drawable/ic_menu_save"
@@ -31,6 +38,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Receives probe records from X's process. Must be exported to be reachable
+             across UIDs, so ProbeProvider checks the calling package on every call
+             instead of relying on the manifest for access control. -->
+        <provider
+            android:name=".ProbeProvider"
+            android:authorities="com.jiesa.xvideocatcher.probe"
+            android:enabled="true"
+            android:exported="true" />
+
+        <!-- Publishes only the generated export file (files/export/), never the live
+             log the writer thread is still appending to. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.jiesa.xvideocatcher.fileprovider"
+            android:enabled="true"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

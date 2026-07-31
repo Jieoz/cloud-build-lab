@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Scoped to the export subdir on purpose: sharing the whole files/ dir would
+         also expose the live log file that the writer thread holds open. -->
+    <files-path
+        name="probe-export"
+        path="export/" />
+</paths>

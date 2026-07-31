@@ -16,6 +16,8 @@ android {
         versionName = "0.1.0-probe"
     }
 
+    buildFeatures { buildConfig = true }
+
     buildTypes {
         // No shrinking on either variant: the Xposed entry class is loaded by name
         // from assets/xposed_init and stack traces must stay readable.
@@ -28,11 +30,25 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    testOptions {
+        unitTests {
+            // Robolectric drives the real ProbeStore/ProbeProvider against a genuine
+            // Android context, which is the only way to catch export-path breakage
+            // without a device.
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
     // Provided by the Xposed/LSPosed framework at runtime — never packaged into the APK.
     compileOnly("de.robv.android.xposed:api:82")
 
+    // FileProvider, for handing the export to a share target without file:// URIs.
+    implementation("androidx.core:core-ktx:1.13.1")
+
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("androidx.test:core:1.5.0")
 }

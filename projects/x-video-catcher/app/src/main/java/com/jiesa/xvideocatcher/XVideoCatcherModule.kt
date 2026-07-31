@@ -2,6 +2,7 @@ package com.jiesa.xvideocatcher
 
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XC_MethodReplacement
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
@@ -25,6 +26,10 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
     private val targets = setOf("com.twitter.android", "com.twitter.android.beta")
 
     override fun handleLoadPackage(param: XC_LoadPackage.LoadPackageParam) {
+        if (param.packageName == BuildConfig.APPLICATION_ID) {
+            markSelfActive(param.classLoader)
+            return
+        }
         if (param.packageName !in targets) return
         if (!param.isFirstApplication) return
 
@@ -39,6 +44,22 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         hookOkHttp(param.classLoader, attached, skipped)
 
         ProbeLog.line("probe layers active=$attached inactive=$skipped")
+    }
+
+    /**
+     * Flips [ModuleStatus.isModuleActive] inside our own UI process, so the status the
+     * screen reports comes from the framework actually having loaded us rather than
+     * from a stored flag that could go stale.
+     */
+    private fun markSelfActive(classLoader: ClassLoader) {
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                ModuleStatus::class.java.name,
+                classLoader,
+                "isModuleActive",
+                XC_MethodReplacement.returnConstant(true),
+            )
+        }
     }
 
     /**
