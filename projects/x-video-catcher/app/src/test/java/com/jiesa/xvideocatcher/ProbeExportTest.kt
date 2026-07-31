@@ -49,7 +49,12 @@ class ProbeExportTest {
         val p = provider()
         val batch = listOf(
             ProbeRecord.note("t", "attached"),
-            ProbeRecord.candidate("t", "Cronet/manifest", listOf("a.b.c")),
+            ProbeRecord.candidate(
+                timestamp = "t",
+                source = "Cronet/manifest",
+                url = "https://video.twimg.com/a/pl/720/x.m3u8",
+                stack = listOf("a.b.c"),
+            ),
         ).joinToString("\n")
 
         val uri = p.insert(
