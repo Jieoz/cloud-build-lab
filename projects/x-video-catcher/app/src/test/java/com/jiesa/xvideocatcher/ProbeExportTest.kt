@@ -10,6 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import android.content.Context
 
 /**
@@ -22,6 +23,9 @@ import android.content.Context
  * failure that leaves Jay with an empty log and nothing to send.
  */
 @RunWith(RobolectricTestRunner::class)
+// Pinned to 34, which is the device this module targets. Robolectric would otherwise
+// default to targetSdk 35, for which it ships no runtime jar.
+@Config(sdk = [34])
 class ProbeExportTest {
 
     private lateinit var context: Context
