@@ -168,12 +168,19 @@ object ProbeLog {
      * dropped first) so a later attempt can still deliver them.
      */
     private fun writeBatch(newRecords: List<String>): Boolean {
-        val context = appContext ?: currentApplication()
+        // Held in a local val so the null check narrows the type for the write below.
+        val context: Context = appContext ?: currentApplication() ?: run {
+            synchronized(retainLock) {
+                retained.addAll(newRecords)
+                trimRetainedLocked()
+            }
+            return false
+        }
+
         val toWrite: List<String>
         synchronized(retainLock) {
             retained.addAll(newRecords)
             trimRetainedLocked()
-            if (context == null) return false
             if (retained.isEmpty()) return true
             toWrite = retained.toList()
             retained.clear()
