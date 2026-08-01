@@ -38,8 +38,10 @@ callbacks run on the app's network hot path.
 
 ## What the probe found
 
-From two real captures on the target device (211 media hits, 18 videos, all via OkHttp →
-`java.net.URL`):
+From three real captures on the target device (574 media records, 488 distinct URLs, 33
+videos, all via OkHttp → `java.net.URL`). The playlist bodies fetched from those URLs are
+committed under `app/src/test/resources/fixtures/` and are what the parser tests run
+against:
 
 ```
 https://video.twimg.com/<kind>/<id>/pl/<key>.m3u8                     master playlist
@@ -54,11 +56,26 @@ Consequences for the download stage:
 
 - **Audio and video are separate tracks.** Fetching video segments alone yields a silent
   file; both tracks have to be taken and muxed.
-- **The master playlist is the only URL worth keeping.** Every resolution and the audio
-  track are reachable from it. Only 7 of 18 captured videos had their master logged,
-  though — a scrolled-past video often shows up as variants and segments only, so the
-  downloader must be able to reconstruct a master URL from a variant, not depend on
-  having seen it.
+- **The master playlist is the only URL worth keeping**, and it cannot be reconstructed.
+  Every resolution and the audio track are reachable from it. An earlier version of this
+  document called for "reconstructing a master URL from a variant" when the master was not
+  captured; that was measured on the third capture (488 distinct URLs, 33 videos) and is
+  false. Playlist keys are random and unrelated across levels: of 26 captured masters,
+  none shared its key with any of its own variants or segments, and of 43
+  variant/segment pairs, likewise none. The key is a 16-character token, so there is
+  nothing to derive it from.
+
+  Consequence: **26 of 33 videos are downloadable, 7 are not fully downloadable.**
+  `DownloadPlan` returns `NeedsMaster` for those 7 rather than guessing a URL. 5 of them
+  captured a video variant playlist and can be fetched at reduced quality; the remaining 2
+  captured only segments and cannot be assembled at all, because each segment carries its
+  own random key and the missing ones cannot be enumerated.
+- **Quality must be selected from the master, never from the capture.** What the player
+  fetched is not what X offers. On 8 of 10 checked videos the app had only ever requested
+  the 32000 audio track while the master advertised 64000 and 128000 — picking the best
+  *captured* audio therefore ships the worst *available* one. `HlsPlaylist.Master.bestAudio`
+  deliberately ignores the `AUDIO=` group the chosen video variant points at, since X pairs
+  its lowest video rung with `audio-32000`.
 - **The player requests several resolutions while adapting**, so "what was playing" is
   not "the best available". `MediaUrls.highestResolution` ranks by pixel count, not
   height — one capture contained both 720x1280 and 1280x720 (identical area, different
@@ -68,7 +85,13 @@ Consequences for the download stage:
   than match a whitelist of known sizes.
 - **Segment boundaries are not always 3000-aligned** — a final segment `0/2237` was
   captured. Range arithmetic must not assume fixed-length chunks.
-- Audio is served at 32000 or 128000; both appear, per video.
+- Audio is served at 32000, 64000 and 128000. Masters typically advertise all three while
+  the player fetches only 32000, which is why selection reads the master (above).
+- **An audio playlist is also a playlist.** `/pl/mp4a/<bitrate>/<key>.m3u8` satisfies the
+  generic playlist test, so classifying with `isManifest` before `isAudioTrack` labelled all
+  26 captured audio playlists `variant` — hiding the audio ladder and allowing a silent
+  audio-only playlist to be picked as the best video rendition. `isAudioTrack` now matches
+  the `/pl/mp4a/` form as well as `/aud/`, and the probe reports `audio-playlist` for it.
 - **`ext_tw_video` (user uploads) inserts a `pu/` segment** between the id and the track:
   `/ext_tw_video/<id>/pu/pl/<key>.m3u8`. A master pattern demanding `<id>/pl/` classified
   all three captured user-upload masters as variants. `tweet_video` (GIFs) is still

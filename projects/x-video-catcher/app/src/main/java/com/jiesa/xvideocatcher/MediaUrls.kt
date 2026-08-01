@@ -260,8 +260,22 @@ object MediaUrls {
         return path + "?" + rebuilt.joinToString("&") { "${it.first}=${it.second}" } + fragment
     }
 
-    /** True for an audio-track URL: audio is a separate track and must be fetched too. */
-    fun isAudioTrack(url: String): Boolean = url.contains("/aud/", ignoreCase = true)
+    /**
+     * An audio URL: either an audio segment (`/aud/mp4a/…`) or an audio *playlist*
+     * (`/pl/mp4a/<bitrate>/…`).
+     *
+     * The playlist form matters and was missing. Matching only `/aud/` meant the 26 audio
+     * playlists in the capture were labelled `variant`, since they satisfy the generic
+     * playlist test — so the log said "variant" for a track carrying no video, and any
+     * quality choice made over "the captured variants" could pick a silent playlist as the
+     * best video rendition.
+     */
+    fun isAudioTrack(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.contains("/aud/") || AUDIO_PLAYLIST.containsMatchIn(lower)
+    }
+
+    private val AUDIO_PLAYLIST = Regex("""/pl/mp4a/\d+/""", RegexOption.IGNORE_CASE)
 
     /** True for a video-track URL (not audio, not a playlist). */
     fun isVideoTrack(url: String): Boolean =

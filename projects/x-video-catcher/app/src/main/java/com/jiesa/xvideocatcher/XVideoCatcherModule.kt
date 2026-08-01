@@ -205,11 +205,14 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
      */
     private fun report(source: String, url: String, force: Boolean = false) {
         if (!force && !MediaUrls.isInteresting(url)) return
+        // Audio is tested before the generic playlist case: an audio playlist
+        // (/pl/mp4a/128000/…) is also a playlist, so checking `isManifest` first labelled
+        // all 26 captured audio playlists "variant" and hid the audio ladder entirely.
         val kind = when {
             MediaUrls.isPhoto(url) -> "photo"
             MediaUrls.isMasterPlaylist(url) -> "master"
+            MediaUrls.isAudioTrack(url) -> if (MediaUrls.isManifest(url)) "audio-playlist" else "audio"
             MediaUrls.isManifest(url) -> "variant"
-            MediaUrls.isAudioTrack(url) -> "audio"
             else -> "segment"
         }
         ProbeLog.candidate("$source/$kind", url, Throwable().stackTrace)

@@ -178,6 +178,37 @@ jobs:
             isInteresting,isManifest,isMasterPlaylist,mediaId,resolution,highestResolution,isAudioTrack,isVideoTrack,isPhoto,photoKey,highestQualityPhoto \
             classes*.dex
 
+      # Playlist parsing and download planning are what turn a captured URL into a file,
+      # so they get the same dex-level check as the URL grammar. Only public API is listed:
+      # Kotlin mangles `internal` members to `name$app_debug`, so gating on those would
+      # pass or fail depending on the variant name rather than on the code being present.
+      - name: Verify playlist parsing and planning are present in the APK
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dexcheck"
+          python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
+            HlsPlaylist \
+            isMasterBody,parseMaster,parseMedia \
+            classes*.dex
+          python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
+            DownloadPlan \
+            from,fetchFor \
+            classes*.dex
+
+      # The checker must be able to fail. A tool that reports success unconditionally is
+      # indistinguishable from a passing gate, and this one has already been wrong once
+      # (an x86_64 dexdump exiting 126 with empty output read as "not found").
+      - name: Self-test the dex checker
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dexcheck"
+          if python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
+               HlsPlaylist parseMaster,definitelyNotARealMethod classes*.dex >/dev/null 2>&1; then
+            echo "::error::dexcheck.py accepted a method that does not exist; the gate proves nothing"
+            exit 1
+          fi
+          echo "dexcheck self-test OK: fabricated method correctly rejected"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
