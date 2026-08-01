@@ -162,6 +162,22 @@ jobs:
           test -z "$(grep -A3 'E: provider' /tmp/mf.txt | grep 'authorities' || true)"
           echo "module contract OK: entry=$ENTRY, no provider-based log sink"
 
+      # Asserts the URL grammar helpers are really in the artifact, by parsing the dex
+      # method table. Two cheaper checks are both unreliable here and were tried first:
+      # `dexdump` in the SDK is x86_64 and exits 126 on an ARM host, producing empty
+      # output indistinguishable from "not found"; and grepping `strings` on classes.dex
+      # alone missed everything, because these classes land in classes3.dex.
+      - name: Verify URL parsing is present in the APK
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          rm -rf dexcheck && mkdir dexcheck && cd dexcheck
+          unzip -oq "$GITHUB_WORKSPACE/projects/x-video-catcher/app/build/outputs/apk/debug/app-debug.apk" 'classes*.dex'
+          python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
+            MediaUrls \
+            isInteresting,isManifest,isMasterPlaylist,mediaId,resolution,highestResolution,isAudioTrack,isVideoTrack \
+            classes*.dex
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
