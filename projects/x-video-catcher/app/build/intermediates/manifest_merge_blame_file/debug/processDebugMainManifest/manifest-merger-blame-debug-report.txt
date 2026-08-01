@@ -1,0 +1,94 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.jiesa.xvideocatcher"
+4    android:versionCode="2"
+5    android:versionName="0.2.0-probe" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="28"
+9        android:targetSdkVersion="35" />
+10
+11    <!--
+12         Needed to read X's version into the export header; X is not otherwise
+13         visible to us under API 30+ package filtering.
+14    -->
+15    <queries>
+15-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:6:5-9:15
+16        <package android:name="com.twitter.android" />
+16-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:7:9-55
+16-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:7:18-52
+17        <package android:name="com.twitter.android.beta" />
+17-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:8:9-60
+17-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:8:18-57
+18    </queries>
+19
+20    <application
+20-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:11:5-46:19
+21        android:allowBackup="false"
+21-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:12:9-36
+22        android:debuggable="true"
+23        android:extractNativeLibs="false"
+24        android:icon="@android:drawable/ic_menu_save"
+24-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:13:9-54
+25        android:label="@string/app_name"
+25-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:14:9-41
+26        android:supportsRtl="true" >
+26-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:15:9-35
+27
+28        <!--
+29             Legacy Xposed module descriptor. LSPosed identifies legacy modules by
+30             the presence of xposedminversion, then reads assets/xposed_init.
+31        -->
+32        <meta-data
+32-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:19:9-21:36
+33            android:name="xposedmodule"
+33-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:20:13-40
+34            android:value="true" />
+34-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:21:13-33
+35        <meta-data
+35-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:22:9-24:84
+36            android:name="xposeddescription"
+36-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:23:13-45
+37            android:value="Probe: log X (Twitter) video playback URL resolution" />
+37-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:24:13-81
+38        <meta-data
+38-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:25:9-27:34
+39            android:name="xposedminversion"
+39-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:26:13-44
+40            android:value="82" />
+40-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:27:13-31
+41        <!-- Scope hint shown by the LSPosed manager. -->
+42        <meta-data
+42-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:29:9-31:53
+43            android:name="xposedscope"
+43-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:30:13-39
+44            android:resource="@array/xposedscope" />
+44-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:31:13-50
+45
+46        <activity
+46-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:33:9-40:20
+47            android:name="com.jiesa.xvideocatcher.MainActivity"
+47-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:34:13-41
+48            android:exported="true" >
+48-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:35:13-36
+49            <intent-filter>
+49-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:36:13-39:29
+50                <action android:name="android.intent.action.MAIN" />
+50-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:37:17-69
+50-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:37:25-66
+51
+52                <category android:name="android.intent.category.LAUNCHER" />
+52-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:38:17-77
+52-->/workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:38:27-74
+53            </intent-filter>
+54        </activity>
+55
+56        <!--
+57             No ContentProvider for probe records on purpose. Under API 30+ package
+58             visibility filtering, X could not resolve our authority (its manifest
+59             declares no <queries> for us and we cannot change it), so records were
+60             silently dropped. The hook now writes to shared Downloads instead.
+61        -->
+62    </application>
+63
+64</manifest>

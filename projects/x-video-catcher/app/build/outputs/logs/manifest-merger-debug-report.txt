@@ -1,0 +1,85 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:2:1-48:12
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:2:1-48:12
+	package
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	android:versionName
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	android:versionCode
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:2:11-69
+queries
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:6:5-9:15
+package#com.twitter.android
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:7:9-55
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:7:18-52
+package#com.twitter.android.beta
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:8:9-60
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:8:18-57
+application
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:11:5-46:19
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:11:5-46:19
+	android:extractNativeLibs
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	android:supportsRtl
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:15:9-35
+	android:label
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:14:9-41
+	android:icon
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:13:9-54
+	android:allowBackup
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:12:9-36
+meta-data#xposedmodule
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:19:9-21:36
+	android:value
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:21:13-33
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:20:13-40
+meta-data#xposeddescription
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:22:9-24:84
+	android:value
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:24:13-81
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:23:13-45
+meta-data#xposedminversion
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:25:9-27:34
+	android:value
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:27:13-31
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:26:13-44
+meta-data#xposedscope
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:29:9-31:53
+	android:resource
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:31:13-50
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:30:13-39
+activity#com.jiesa.xvideocatcher.MainActivity
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:33:9-40:20
+	android:exported
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:35:13-36
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:34:13-41
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:36:13-39:29
+action#android.intent.action.MAIN
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:37:17-69
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:37:25-66
+category#android.intent.category.LAUNCHER
+ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:38:17-77
+	android:name
+		ADDED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml:38:27-74
+uses-sdk
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/AndroidManifest.xml
