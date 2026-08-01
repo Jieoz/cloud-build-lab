@@ -5,16 +5,17 @@
     <string name="status_active">Module active — probe is attached to X.</string>
     <string name="status_inactive">Module NOT active. Enable it in LSPosed, tick X in
         the scope list, then force-stop X so it restarts with the module loaded.</string>
-    <string name="status_records">Collected: %1$d records (%2$d KB)</string>
-    <string name="hint_no_records">No records yet. Open X and play a video, then come
-        back and tap Refresh.</string>
 
-    <string name="action_share">Export / share log</string>
-    <string name="action_refresh">Refresh</string>
-    <string name="action_clear">Clear log</string>
+    <string name="log_location">X writes the log here:\n\n%1$s</string>
+    <string name="log_hint">The file appears as soon as X restarts with the module
+        loaded — it does not wait for a video. If it is missing, force-stop X and
+        reopen it.\n\nTo send it: open the folder below, long-press the file, share.</string>
+    <string name="log_note">This app cannot read the file itself: Android only lets the
+        app that created it see it, and X is the writer. That is expected.</string>
 
-    <string name="toast_empty">Nothing collected yet — play a video in X first.</string>
-    <string name="toast_export_failed">Could not build the export file.</string>
-    <string name="toast_no_share_target">No app available to receive the file.</string>
-    <string name="toast_cleared">Log cleared.</string>
+    <string name="action_open">Open Downloads folder</string>
+    <string name="action_refresh">Refresh status</string>
+
+    <string name="toast_no_file_manager">No app available to open Downloads. Use your
+        file manager and go to Download/XVideoCatcher.</string>
 </resources>

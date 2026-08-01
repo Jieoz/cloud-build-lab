@@ -68,7 +68,13 @@ jobs:
           # The Xposed API must stay provided-only; a bundled copy breaks hooking.
           unzip -l "$APK" | grep -q 'classes.dex'
           test -z "$(unzip -l "$APK" | grep -i 'de/robv/android/xposed' || true)"
-          echo "module contract OK: entry=$ENTRY"
+          # The probe log must not depend on the hooked app reaching a provider we own.
+          # Under API 30+ package visibility filtering X cannot resolve our authority
+          # (we cannot add <queries> to X's manifest), so such a sink silently drops
+          # every record — which is exactly how the first build shipped broken.
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" > /tmp/mf.txt
+          test -z "$(grep -A3 'E: provider' /tmp/mf.txt | grep 'authorities' || true)"
+          echo "module contract OK: entry=$ENTRY, no provider-based log sink"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

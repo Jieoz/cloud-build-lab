@@ -44,6 +44,9 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         hookOkHttp(param.classLoader, attached, skipped)
 
         ProbeLog.line("probe layers active=$attached inactive=$skipped")
+        // Write immediately rather than waiting for the first media URL, so the log
+        // file proves attachment on its own.
+        ProbeLog.flushNow()
     }
 
     /**

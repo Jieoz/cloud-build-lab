@@ -1,7 +1,7 @@
 package com.jiesa.xvideocatcher
 
 import android.app.Application
-import android.content.ContentValues
+import android.content.Context
 import de.robv.android.xposed.XposedBridge
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -14,12 +14,8 @@ import java.util.concurrent.TimeUnit
  *
  * Records go to two destinations, both best-effort:
  *  - `XposedBridge.log`, readable from the LSPosed manager log screen.
- *  - the module's own [ProbeProvider], which persists them where the module UI can
- *    read them back and export them.
- *
- * The provider is the only file sink. Writing into X's own cache dir (the earlier
- * approach) put the log somewhere unreachable without root, which defeats the point
- * of collecting it.
+ *  - a JSONL file in shared Downloads via [ProbeSink], written by the host process
+ *    itself so it needs no permission and no cross-process provider lookup.
  *
  * Nothing here may throw into the host app: a probe that crashes X is worse than a
  * probe that logs nothing.
@@ -29,7 +25,7 @@ object ProbeLog {
     private const val TAG = "XVideoCatcher"
 
     /**
-     * A binder call per URL would be unacceptable on the network hot path, so records
+     * A file write per URL would be unacceptable on the network hot path, so records
      * are queued and flushed by one background thread. The queue is bounded and drops
      * on overflow — losing records under a flood is correct; blocking X's threads or
      * growing without limit is not.
@@ -46,6 +42,10 @@ object ProbeLog {
 
     @Volatile
     private var dropped = 0L
+
+    /** Set once a write actually succeeded, so a dead sink can be reported as such. */
+    @Volatile
+    private var sinkVerified = false
 
     fun line(message: String) {
         runCatching { XposedBridge.log("[$TAG] $message") }
@@ -72,6 +72,18 @@ object ProbeLog {
         )
         runCatching { XposedBridge.log("[$TAG] $record") }
         enqueue(record)
+    }
+
+    /**
+     * Flushes pending records immediately. Called right after attach so the log file
+     * exists as soon as the module loads: an empty Downloads folder then means "not
+     * loaded", instead of being indistinguishable from "loaded but sink broken".
+     */
+    fun flushNow() {
+        ensureWriter()
+        val batch = ArrayList<String>(BATCH_SIZE)
+        queue.drainTo(batch, BATCH_SIZE)
+        if (batch.isNotEmpty()) flush(batch)
     }
 
     private fun enqueue(record: String) {
@@ -114,14 +126,17 @@ object ProbeLog {
     }
 
     private fun flush(batch: List<String>) {
-        val app = currentApplication() ?: return
-        val payload = batch.joinToString("\n")
-        runCatching {
-            val values = ContentValues().apply { put(ProbeContract.COLUMN_LINES, payload) }
-            app.contentResolver.insert(ProbeContract.LOG_URI, values)
-        }.onFailure {
-            // Typically the module app being force-stopped or not yet installed.
-            runCatching { XposedBridge.log("[$TAG] sink unavailable: ${it.javaClass.name}") }
+        val context: Context = currentApplication() ?: return
+        val ok = ProbeSink.append(context, batch)
+        if (ok) {
+            if (!sinkVerified) {
+                sinkVerified = true
+                runCatching {
+                    XposedBridge.log("[$TAG] sink ok -> ${ProbeSink.displayPath()}")
+                }
+            }
+        } else {
+            runCatching { XposedBridge.log("[$TAG] sink write FAILED -> ${ProbeSink.displayPath()}") }
         }
     }
 

@@ -12,8 +12,8 @@ android {
         // LSPosed needs Android 8.1+; Jay's target device is Android 14 (API 34).
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-probe"
+        versionCode = 2
+        versionName = "0.2.0-probe"
     }
 
     buildFeatures { buildConfig = true }
@@ -33,9 +33,9 @@ android {
 
     testOptions {
         unitTests {
-            // Robolectric drives the real ProbeStore/ProbeProvider against a genuine
-            // Android context, which is the only way to catch export-path breakage
-            // without a device.
+            // Robolectric drives the real ProbeSink against a genuine Android context
+            // and asserts on bytes that actually reached disk, which is the only way
+            // to catch a dead log sink without a device.
             isIncludeAndroidResources = true
         }
     }
@@ -45,8 +45,8 @@ dependencies {
     // Provided by the Xposed/LSPosed framework at runtime — never packaged into the APK.
     compileOnly("de.robv.android.xposed:api:82")
 
-    // FileProvider, for handing the export to a share target without file:// URIs.
-    implementation("androidx.core:core-ktx:1.13.1")
+    // No androidx runtime dependency: the probe UI is plain framework views, and the
+    // log is written by the host process straight into shared Downloads.
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.12.2")

@@ -39,27 +39,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Receives probe records from X's process. Must be exported to be reachable
-             across UIDs, so ProbeProvider checks the calling package on every call
-             instead of relying on the manifest for access control. -->
-        <provider
-            android:name=".ProbeProvider"
-            android:authorities="com.jiesa.xvideocatcher.probe"
-            android:enabled="true"
-            android:exported="true" />
-
-        <!-- Publishes only the generated export file (files/export/), never the live
-             log the writer thread is still appending to. -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.jiesa.xvideocatcher.fileprovider"
-            android:enabled="true"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
+        <!-- No ContentProvider for probe records on purpose. Under API 30+ package
+             visibility filtering, X could not resolve our authority (its manifest
+             declares no <queries> for us and we cannot change it), so records were
+             silently dropped. The hook now writes to shared Downloads instead. -->
     </application>
 
 </manifest>
