@@ -50,6 +50,30 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 
+      # Gradle prints nothing on success, so a green step alone does not prove any test
+      # executed — a silently empty test set would look identical. This reports the real
+      # per-class counts and fails on zero.
+      - name: Report unit test counts
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          files = glob.glob("app/build/test-results/testDebugUnitTest/*.xml")
+          if not files:
+              sys.exit("no test result XML: tests did not run")
+          total = failed = 0
+          for f in sorted(files):
+              r = ET.parse(f).getroot()
+              t = int(r.get("tests")); bad = int(r.get("failures")) + int(r.get("errors"))
+              total += t; failed += bad
+              print(f"{r.get('name')}: tests={t} failures={bad} skipped={r.get('skipped')}")
+          print(f"TOTAL tests={total} failures={failed}")
+          if total == 0:
+              sys.exit("zero tests executed")
+          if failed:
+              sys.exit(f"{failed} test failure(s)")
+          PY
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
