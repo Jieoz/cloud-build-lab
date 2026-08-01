@@ -1,7 +1,0 @@
-com.jiesa.xvideocatcher.app-pngs-0 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/build/generated/res/pngs/debug
-com.jiesa.xvideocatcher.app-resValues-1 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/build/generated/res/resValues/debug
-com.jiesa.xvideocatcher.app-packageDebugResources-2 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
-com.jiesa.xvideocatcher.app-packageDebugResources-3 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
-com.jiesa.xvideocatcher.app-debug-4 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/build/intermediates/merged_res/debug/mergeDebugResources
-com.jiesa.xvideocatcher.app-debug-5 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/debug/res
-com.jiesa.xvideocatcher.app-main-6 /workspace/repos/github/Jieoz/cloud-build-lab/projects/x-video-catcher/app/src/main/res
