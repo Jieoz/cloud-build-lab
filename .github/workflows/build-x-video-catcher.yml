@@ -175,7 +175,7 @@ jobs:
           unzip -oq "$GITHUB_WORKSPACE/projects/x-video-catcher/app/build/outputs/apk/debug/app-debug.apk" 'classes*.dex'
           python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
             MediaUrls \
-            isInteresting,isManifest,isMasterPlaylist,mediaId,resolution,highestResolution,isAudioTrack,isVideoTrack \
+            isInteresting,isManifest,isMasterPlaylist,mediaId,resolution,highestResolution,isAudioTrack,isVideoTrack,isPhoto,photoKey,highestQualityPhoto \
             classes*.dex
 
       - name: Upload APK

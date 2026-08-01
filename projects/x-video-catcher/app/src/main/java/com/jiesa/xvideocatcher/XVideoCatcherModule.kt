@@ -206,6 +206,7 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
     private fun report(source: String, url: String, force: Boolean = false) {
         if (!force && !MediaUrls.isInteresting(url)) return
         val kind = when {
+            MediaUrls.isPhoto(url) -> "photo"
             MediaUrls.isMasterPlaylist(url) -> "master"
             MediaUrls.isManifest(url) -> "variant"
             MediaUrls.isAudioTrack(url) -> "audio"

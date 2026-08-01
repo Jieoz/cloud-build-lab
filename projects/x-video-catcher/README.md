@@ -38,16 +38,16 @@ callbacks run on the app's network hot path.
 
 ## What the probe found
 
-From a real capture on the target device (86 media hits, 7 videos, all via OkHttp →
+From two real captures on the target device (211 media hits, 18 videos, all via OkHttp →
 `java.net.URL`):
 
 ```
 https://video.twimg.com/<kind>/<id>/pl/<key>.m3u8                     master playlist
 https://video.twimg.com/<kind>/<id>/pl/avc1/1920x1080/<key>.m3u8      video variant
-https://video.twimg.com/<kind>/<id>/pl/mp4a/128000/<key>.m3u8         audio variant
+https://video.twimg.com/<kind>/<id>/pl/mp4a/32000/<key>.m3u8          audio variant
 https://video.twimg.com/<kind>/<id>/vid/avc1/0/0/1920x1080/<k>.mp4    video init segment
 https://video.twimg.com/<kind>/<id>/vid/avc1/0/3000/1920x1080/<k>.m4s video segment
-https://video.twimg.com/<kind>/<id>/aud/mp4a/0/3000/128000/<k>.m4s    audio segment
+https://video.twimg.com/<kind>/<id>/aud/mp4a/0/3000/32000/<k>.m4s     audio segment
 ```
 
 Consequences for the download stage:
@@ -55,13 +55,51 @@ Consequences for the download stage:
 - **Audio and video are separate tracks.** Fetching video segments alone yields a silent
   file; both tracks have to be taken and muxed.
 - **The master playlist is the only URL worth keeping.** Every resolution and the audio
-  track are reachable from it.
+  track are reachable from it. Only 7 of 18 captured videos had their master logged,
+  though — a scrolled-past video often shows up as variants and segments only, so the
+  downloader must be able to reconstruct a master URL from a variant, not depend on
+  having seen it.
 - **The player requests several resolutions while adapting**, so "what was playing" is
   not "the best available". `MediaUrls.highestResolution` ranks by pixel count, not
-  height — one capture contained both 720x1280 and 1920x1080, and comparing height would
-  rank the portrait clip higher.
-- `kind` observed so far: `amplify_video` only. `ext_tw_video` (user uploads) and
-  `tweet_video` (GIFs) are handled by the filter but not yet confirmed against a capture.
+  height — one capture contained both 720x1280 and 1280x720 (identical area, different
+  orientation), and comparing height would rank the portrait clip higher.
+- **Resolutions are not a fixed ladder.** `606x1078` appeared alongside the usual
+  320/480/720/1080 steps, so quality selection has to compare captured values rather
+  than match a whitelist of known sizes.
+- **Segment boundaries are not always 3000-aligned** — a final segment `0/2237` was
+  captured. Range arithmetic must not assume fixed-length chunks.
+- Audio is served at 32000 or 128000; both appear, per video.
+- `kind` observed so far: `amplify_video` only, across both captures. `ext_tw_video`
+  (user uploads) and `tweet_video` (GIFs) are handled by the filter but still unconfirmed
+  against a capture.
+
+### Photos
+
+Photos are on a **different host with a different quality mechanism**, which is why
+`MediaUrls` splits selection in two. X stores one image and resizes on request, so
+quality is a query parameter rather than a path element:
+
+```
+https://pbs.twimg.com/media/<key>?format=jpg&name=small      ~680px
+https://pbs.twimg.com/media/<key>?format=jpg&name=orig       full stored size
+https://pbs.twimg.com/media/<key>.jpg                        defaults to medium
+```
+
+`MediaUrls.highestQualityPhoto` rewrites any of these to `name=orig`, so a download lands
+on the full image regardless of which size the timeline happened to load. It is
+idempotent and returns non-photo URLs unchanged, so callers can apply it blindly.
+
+Filtering is stricter here than for video. A timeline scroll fetches hundreds of avatars,
+emoji, and card previews from the same host; those are excluded by path
+(`profile_images`, `profile_banners`, `emoji`, `card_img`, `semantic_core_img`) while
+`media` and the video-poster paths are kept. Without that split the log fills with noise
+and the photos the user asked for become unfindable — the same failure as the
+`robots.txt` case above.
+
+Not yet confirmed on-device: no capture so far contains a single `pbs.twimg.com` hit,
+because until `0.6.0` the filter only recognised the video host. The photo rules are
+therefore verified against the documented URL grammar and unit tests, not against a
+capture from Jay's device.
 
 ## Getting the log out
 
