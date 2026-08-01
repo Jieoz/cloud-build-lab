@@ -20,19 +20,48 @@ and method names change between versions and carry no stable meaning, so hooking
 name is not maintainable. Every hook here therefore attaches to a boundary that *cannot*
 be renamed:
 
-| Layer | Hook point | Why it survives obfuscation |
+| Layer | Hook point | Status on X 12.11.1 |
 | --- | --- | --- |
-| A | `java.net.URL(String)` | platform class |
-| B | `MediaPlayer.setDataSource(String)` | platform class |
-| C | `org.chromium.net.CronetEngine.newUrlRequestBuilder` | loaded reflectively, paired with native code |
-| D | `okhttp3.Request$Builder.url` | only present if names survived; its absence is itself a finding |
+| A | `java.net.URL(String)` | **active** — carried 85 of 86 captured hits |
+| B | `MediaPlayer.setDataSource(String)` | active, no hits (X uses its own player) |
+| C | `org.chromium.net.CronetEngine.newUrlRequestBuilder` | **absent** — no Cronet in this build |
+| D | `okhttp3.Request$Builder.url` | active — OkHttp names survived obfuscation |
 
-Each layer attaches independently. A missing class is logged and skipped rather than
-thrown, so one failure cannot take down the probe or the host app.
+Each layer attaches independently. A missing class is recorded in the summary line and
+skipped; only an unexpected failure gets a stack trace, so a launch does not look like
+it errored just because this build of X lacks Cronet.
 
-Only URLs that look like media are recorded (`video.twimg.com`, `amplify_video`,
-`.m3u8`, `.mp4`, segments). These callbacks run on the app's network hot path, so
-filtering happens before any stack trace is materialised.
+Only URLs that look like media are recorded. The path must look like media *and* the
+host must be known — matching the host alone logged `video.twimg.com/robots.txt` on
+every launch. Filtering happens before any stack trace is materialised, since these
+callbacks run on the app's network hot path.
+
+## What the probe found
+
+From a real capture on the target device (86 media hits, 7 videos, all via OkHttp →
+`java.net.URL`):
+
+```
+https://video.twimg.com/<kind>/<id>/pl/<key>.m3u8                     master playlist
+https://video.twimg.com/<kind>/<id>/pl/avc1/1920x1080/<key>.m3u8      video variant
+https://video.twimg.com/<kind>/<id>/pl/mp4a/128000/<key>.m3u8         audio variant
+https://video.twimg.com/<kind>/<id>/vid/avc1/0/0/1920x1080/<k>.mp4    video init segment
+https://video.twimg.com/<kind>/<id>/vid/avc1/0/3000/1920x1080/<k>.m4s video segment
+https://video.twimg.com/<kind>/<id>/aud/mp4a/0/3000/128000/<k>.m4s    audio segment
+```
+
+Consequences for the download stage:
+
+- **Audio and video are separate tracks.** Fetching video segments alone yields a silent
+  file; both tracks have to be taken and muxed.
+- **The master playlist is the only URL worth keeping.** Every resolution and the audio
+  track are reachable from it.
+- **The player requests several resolutions while adapting**, so "what was playing" is
+  not "the best available". `MediaUrls.highestResolution` ranks by pixel count, not
+  height — one capture contained both 720x1280 and 1920x1080, and comparing height would
+  rank the portrait clip higher.
+- `kind` observed so far: `amplify_video` only. `ext_tw_video` (user uploads) and
+  `tweet_video` (GIFs) are handled by the filter but not yet confirmed against a capture.
 
 ## Getting the log out
 
@@ -110,8 +139,14 @@ from templates. Re-apply the unit-test and APK-contract steps after re-registeri
 1. Install the APK, enable the module in LSPosed, and set its scope to X.
 2. Force-stop X so it restarts with the module attached.
 3. Check `Download/XVideoCatcher/` — the log file is written on attach, before you play
-   anything. If it is absent, the module did not load; nothing else needs diagnosing.
+   anything.
 4. Play a video, then share the file.
+
+If the folder is absent, check the LSPosed log for `XVideoCatcher` before concluding the
+module did not load. Every record goes to both the file and the LSPosed log, so the
+LSPosed side still shows the attach line if the file path itself is what broke — which is
+exactly what happened in `0.3.0` and below, where records produced before the host
+Application existed were discarded and the folder never appeared on a working module.
 
 The launcher activity reports whether the module is active in *its own* process (the
 framework rewrites `ModuleStatus.isModuleActive()`, so "not active" is a real reading,

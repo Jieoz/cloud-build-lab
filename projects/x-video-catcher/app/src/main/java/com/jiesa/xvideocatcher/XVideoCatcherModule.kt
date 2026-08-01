@@ -138,9 +138,11 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
     /**
      * Layer C — Cronet.
      *
-     * X ships Cronet, and org.chromium.net.* survives obfuscation because it is
-     * loaded reflectively and paired with native code. The public entry point that
-     * always sees the URL is CronetEngine.newUrlRequestBuilder(String, ...).
+     * Absent from X 12.11.1: a real capture showed ClassNotFoundException for
+     * org.chromium.net.CronetEngine, and all 86 media hits arrived via OkHttp. Kept
+     * anyway, because X has shipped Cronet before and a silent switch back would
+     * otherwise take the probe blind. Its absence is logged as an expected condition
+     * rather than an error, so it does not look like a fault every launch.
      */
     private fun hookCronet(
         classLoader: ClassLoader,
@@ -192,16 +194,34 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
     }
 
     /**
-     * Filters noise before doing any expensive work. These callbacks run on the
-     * app's network hot path, so the cheap string check comes first and the stack
-     * trace is only materialised for URLs that look like media.
+     * Filters noise before doing any expensive work. These callbacks run on the app's
+     * network hot path, so the cheap string check comes first and the stack trace is
+     * only materialised for URLs that look like media.
+     *
+     * The label distinguishes a master playlist from variants and segments, because
+     * the master is the only URL a download needs — reading that straight out of the
+     * log is what makes the next capture answer "what shape do user uploads and GIFs
+     * use", without re-deriving it from a wall of segment URLs.
      */
     private fun report(source: String, url: String, force: Boolean = false) {
         if (!force && !MediaUrls.isInteresting(url)) return
-        val kind = if (MediaUrls.isManifest(url)) "manifest" else "media"
+        val kind = when {
+            MediaUrls.isMasterPlaylist(url) -> "master"
+            MediaUrls.isManifest(url) -> "variant"
+            MediaUrls.isAudioTrack(url) -> "audio"
+            else -> "segment"
+        }
         ProbeLog.candidate("$source/$kind", url, Throwable().stackTrace)
     }
 
+    /**
+     * Attaches one layer, keeping a failure local to it.
+     *
+     * A missing class is an ordinary fact about this build of X, not a fault, so it is
+     * recorded in the summary line only. Anything else means the hook itself is broken
+     * and gets a full stack trace — mixing the two made every launch look like it had
+     * an error in it, which is how a real failure gets overlooked.
+     */
     private inline fun layer(
         name: String,
         attached: MutableList<String>,
@@ -211,9 +231,13 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         try {
             block()
             attached += name
+        } catch (absent: ClassNotFoundException) {
+            skipped += name
+        } catch (absent: NoSuchMethodException) {
+            skipped += name
         } catch (t: Throwable) {
             skipped += name
-            ProbeLog.error("layer '$name' not attached", t)
+            ProbeLog.error("layer '$name' failed to attach", t)
         }
     }
 }
