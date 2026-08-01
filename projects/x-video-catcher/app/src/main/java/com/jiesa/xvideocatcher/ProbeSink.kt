@@ -1,5 +1,6 @@
 package com.jiesa.xvideocatcher
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.os.Build
@@ -40,17 +41,41 @@ object ProbeSink {
     fun displayPath(now: Date = Date()): String = "Download/$DIR_NAME/${fileName(now)}"
 
     /**
+     * Byte destination, replaceable in tests.
+     *
+     * Robolectric ships no MediaStore provider implementation — its ShadowMediaStore
+     * covers thumbnails and cloud-media only — so `insert` into the Downloads
+     * collection always returns null under test. Asserting on MediaStore bytes there
+     * would only ever prove the shadow is missing, not that the sink works. The seam
+     * therefore sits at the byte-append boundary: tests substitute a plain file and
+     * verify the retention and append contracts, while the MediaStore specifics are
+     * verified on-device.
+     */
+    internal interface Writer {
+        /** Appends [payload] to [name], creating it if needed. False on failure. */
+        fun append(context: Context, name: String, payload: String): Boolean
+    }
+
+    private val mediaStoreWriter = object : Writer {
+        override fun append(context: Context, name: String, payload: String): Boolean =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appendViaMediaStore(context, name, payload)
+            } else {
+                appendViaFile(name, payload)
+            }
+    }
+
+    @Volatile
+    private var writer: Writer = mediaStoreWriter
+
+    /**
      * Appends lines, creating the file on first use. Returns false when the write
-     * failed, so the caller can report a dead sink instead of assuming success.
+     * failed, so the caller can retain the records instead of assuming success.
      */
     fun append(context: Context, lines: List<String>): Boolean {
         if (lines.isEmpty()) return true
         val payload = lines.joinToString(separator = "\n", postfix = "\n")
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appendViaMediaStore(context, payload)
-        } else {
-            appendViaFile(payload)
-        }
+        return runCatching { writer.append(context, fileName(), payload) }.getOrDefault(false)
     }
 
     /**
@@ -59,10 +84,13 @@ object ProbeSink {
      * host process can be restarted at any time, and a stale cached Uri would send the
      * rest of the day's records nowhere.
      */
-    private fun appendViaMediaStore(context: Context, payload: String): Boolean = runCatching {
+    private fun appendViaMediaStore(
+        context: Context,
+        name: String,
+        payload: String,
+    ): Boolean = runCatching {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val name = fileName()
         val relative = "${Environment.DIRECTORY_DOWNLOADS}/$DIR_NAME/"
 
         val existing = resolver.query(
@@ -73,7 +101,7 @@ object ProbeSink {
             null,
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
-                android.content.ContentUris.withAppendedId(collection, cursor.getLong(0))
+                ContentUris.withAppendedId(collection, cursor.getLong(0))
             } else {
                 null
             }
@@ -93,51 +121,37 @@ object ProbeSink {
     }.getOrDefault(false)
 
     /** API 28 has no scoped storage; the legacy path works when the host holds the permission. */
-    private fun appendViaFile(payload: String): Boolean = runCatching {
+    private fun appendViaFile(name: String, payload: String): Boolean = runCatching {
         val dir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             DIR_NAME,
         )
         if (!dir.exists() && !dir.mkdirs()) return false
-        File(dir, fileName()).appendText(payload)
+        File(dir, name).appendText(payload)
         true
     }.getOrDefault(false)
 
-    // --- test seams -------------------------------------------------------------
-    // These read back through the same MediaStore path used for writing, so tests
-    // assert on what actually landed on disk rather than on a stand-in.
+    // --- test seam --------------------------------------------------------------
 
-    internal fun readLinesForTest(context: Context): List<String> = runCatching {
-        val uri = locateForTest(context) ?: return emptyList()
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.readBytes().toString(Charsets.UTF_8)
-                .split("\n")
-                .filter { it.isNotBlank() }
-        } ?: emptyList()
-    }.getOrDefault(emptyList())
-
-    internal fun existsForTest(context: Context): Boolean = locateForTest(context) != null
-
-    internal fun deleteForTest(context: Context) {
-        runCatching {
-            locateForTest(context)?.let { context.contentResolver.delete(it, null, null) }
+    /** Routes writes into [dir] as plain files. */
+    internal fun useFileWriterForTest(dir: File) {
+        writer = object : Writer {
+            override fun append(context: Context, name: String, payload: String): Boolean {
+                if (!dir.exists() && !dir.mkdirs()) return false
+                File(dir, name).appendText(payload)
+                return true
+            }
         }
     }
 
-    private fun locateForTest(context: Context) = runCatching {
-        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        context.contentResolver.query(
-            collection,
-            arrayOf(MediaStore.MediaColumns._ID),
-            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
-            arrayOf("${Environment.DIRECTORY_DOWNLOADS}/$DIR_NAME/", fileName()),
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                android.content.ContentUris.withAppendedId(collection, cursor.getLong(0))
-            } else {
-                null
-            }
+    /** Makes every write fail, to verify records are retained rather than lost. */
+    internal fun useFailingWriterForTest() {
+        writer = object : Writer {
+            override fun append(context: Context, name: String, payload: String) = false
         }
-    }.getOrNull()
+    }
+
+    internal fun restoreWriterForTest() {
+        writer = mediaStoreWriter
+    }
 }

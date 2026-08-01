@@ -114,11 +114,15 @@ object ProbeLog {
         enqueue(record)
     }
 
-    /** Attempts to put everything collected so far on disk, in the calling thread. */
+    /**
+     * Attempts to put everything collected so far on disk, in the calling thread.
+     * Drains the whole queue rather than one batch, so a caller that asks for a flush
+     * does not silently leave records behind.
+     */
     fun flushNow() {
         ensureWriter()
-        val batch = ArrayList<String>(BATCH_SIZE)
-        queue.drainTo(batch, BATCH_SIZE)
+        val batch = ArrayList<String>()
+        queue.drainTo(batch)
         writeBatch(batch)
     }
 
@@ -127,8 +131,17 @@ object ProbeLog {
         if (!queue.offer(record)) dropped++
     }
 
+    /**
+     * Set by tests so writes happen synchronously in [flushNow]. With the background
+     * thread running, it and the test thread race for the same queue and assertions
+     * become flaky — which would be worse than no test, since it invites re-running
+     * until green.
+     */
+    @Volatile
+    private var synchronousForTest = false
+
     private fun ensureWriter() {
-        if (writerStarted) return
+        if (synchronousForTest || writerStarted) return
         synchronized(this) {
             if (writerStarted) return
             writerStarted = true
@@ -224,12 +237,19 @@ object ProbeLog {
         helper.getMethod("currentApplication").invoke(null) as? Application
     }.getOrNull()
 
-    /** Test seam: resets process-global state between cases. */
+    /**
+     * Test seam: resets process-global state and makes flushing synchronous, so
+     * assertions do not race the background writer thread.
+     */
     internal fun resetForTest() {
+        synchronousForTest = true
         appContext = null
         sinkVerified = false
         dropped = 0
         queue.clear()
         synchronized(retainLock) { retained.clear() }
     }
+
+    /** Records held but not yet written; lets tests assert nothing was silently lost. */
+    internal fun retainedCountForTest(): Int = synchronized(retainLock) { retained.size }
 }

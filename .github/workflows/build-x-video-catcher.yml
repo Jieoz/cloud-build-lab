@@ -67,6 +67,24 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 
+      # On failure the assertion messages live only in the XML report, which is not in
+      # the job log — without this a failing test says "AssertionError at line N" and
+      # nothing about what was actually expected.
+      - name: Dump failing test details
+        if: failure()
+        run: |
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -f "$f" ] || continue
+            python3 - "$f" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          for case in root.iter('testcase'):
+              for bad in list(case.iter('failure')) + list(case.iter('error')):
+                  print(f"--- {case.get('classname')}.{case.get('name')}")
+                  print((bad.text or bad.get('message') or '').strip()[:2000])
+          PY
+          done
+
       # Gradle prints nothing on success, so a green step alone does not prove any test
       # executed — a silently empty test set would look identical. This reports the real
       # per-class counts and fails on zero.

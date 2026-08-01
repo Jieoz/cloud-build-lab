@@ -4,6 +4,7 @@ import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -28,6 +29,13 @@ import java.util.Locale
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class ProbeSinkTest {
+
+    // ProbeSink is an object, so a writer substituted by another test class would leak
+    // into these cases and they would stop testing the real file path.
+    @Before
+    fun useRealWriter() {
+        ProbeSink.restoreWriterForTest()
+    }
 
     private fun logFile(): File = File(
         File(
