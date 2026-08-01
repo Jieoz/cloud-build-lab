@@ -47,6 +47,23 @@ jobs:
           test -f build.gradle.kts || test -f build.gradle
           test -f app/build.gradle.kts || test -f app/build.gradle
 
+      # Without a fixed key, each runner signs with a freshly generated debug keystore,
+      # so every build has a different signature and Android refuses to install it over
+      # the previous one. Failing here rather than falling back keeps an
+      # un-upgradable APK from being published at all.
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.XVC_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::XVC_KEYSTORE_B64 secret is missing; refusing to build an APK that cannot be upgraded in place"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/xvc-release.jks"
+          test -s "$RUNNER_TEMP/xvc-release.jks"
+          echo "keystore restored ($(stat -c%s "$RUNNER_TEMP/xvc-release.jks") bytes)"
+
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 
@@ -75,7 +92,34 @@ jobs:
           PY
 
       - name: Build debug APK
+        env:
+          XVC_KEYSTORE_PATH: ${{ runner.temp }}/xvc-release.jks
+          XVC_KEYSTORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
+          XVC_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
+          XVC_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
         run: gradle --no-daemon assembleDebug
+
+      # The signing config is applied conditionally in Gradle, so a missing or misread
+      # env var would silently fall back to the per-runner debug key and produce another
+      # APK that cannot be installed over the last one. Pin the expected certificate
+      # digest so that regression fails the build instead of reaching the device.
+      - name: Verify APK signature is the fixed key
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" \
+            | grep -m1 -i 'certificate SHA-256 digest' \
+            | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
+          # SHA-256 of the fixed key's certificate. If this ever has to change, every
+          # installed copy must be uninstalled first — so treat it as frozen.
+          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
+          echo "signer=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK is not signed with the fixed release key (got $ACTUAL, want $EXPECTED). In-place upgrade would fail."
+            exit 1
+          fi
+          echo "signature OK: fixed key, in-place upgrade preserved"
 
       - name: Verify Xposed module contract in APK
         run: |

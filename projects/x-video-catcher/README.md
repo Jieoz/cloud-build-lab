@@ -67,11 +67,29 @@ Quick check without a file manager, if adb is handy:
 adb shell ls -l /sdcard/Download/XVideoCatcher/
 ```
 
+## Signing
+
+Builds are signed with a **fixed** key held in CI secrets (`XVC_KEYSTORE_B64` and
+friends), not the per-machine debug key Gradle generates by default. That default is
+regenerated on every CI runner, so consecutive builds had different signatures and
+Android refused to install one over another — every update meant uninstalling first,
+losing the LSPosed scope selection with it.
+
+CI **fails** if the keystore secret is missing and asserts the built APK's certificate
+digest equals the pinned value, so a silent fallback to a throwaway debug key cannot
+ship. Changing the key later would again require uninstalling everywhere; treat the
+pinned digest in the workflow as frozen.
+
+> Builds before `0.3.0-probe` used a throwaway debug key. Upgrading from `0.1.0` or
+> `0.2.0` requires one uninstall; from `0.3.0` on, in-place upgrade works.
+
 ## Build
 
 Cloud CI only — see `.github/workflows/build-x-video-catcher.yml`. The workflow runs the
-unit tests, builds the APK, then asserts the module contract on the built artifact:
-`assets/xposed_init` names the entry class, `xposedminversion` is present, and the Xposed
+unit tests, reports real per-class test counts (Gradle is silent on success, so a green
+step alone would not prove any test ran), builds the APK, verifies the signing key, then
+asserts the module contract on the built artifact: `assets/xposed_init` names the entry
+class, `xposedminversion` is present, no provider authority is declared, and the Xposed
 API is *not* bundled into the APK (a bundled copy breaks hook dispatch).
 
 Tests cover the JSONL line contract (an unescaped newline splits a record and corrupts

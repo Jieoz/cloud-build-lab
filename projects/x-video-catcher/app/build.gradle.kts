@@ -12,17 +12,55 @@ android {
         // LSPosed needs Android 8.1+; Jay's target device is Android 14 (API 34).
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-probe"
+        versionCode = 3
+        versionName = "0.3.0-probe"
     }
 
     buildFeatures { buildConfig = true }
 
+    // A fixed signing key, so every build can be installed over the previous one.
+    // Android refuses an update whose signature differs, and the auto-generated debug
+    // keystore is per-machine — on a CI runner it is regenerated every run, which made
+    // each build uninstallable over the last.
+    //
+    // Supplied via env (CI secrets). Absent locally, the build still works for
+    // compiling and testing but produces a debug-key APK that cannot be used for
+    // in-place upgrades; CI fails outright rather than publishing such an APK, so the
+    // fallback is never what reaches a device.
+    val keystorePath = System.getenv("XVC_KEYSTORE_PATH")
+    val keystorePass = System.getenv("XVC_KEYSTORE_PASSWORD")
+    val keyAliasName = System.getenv("XVC_KEY_ALIAS") ?: "xvc"
+    val keyPassword = System.getenv("XVC_KEY_PASSWORD") ?: keystorePass
+    val hasFixedKey = !keystorePath.isNullOrBlank() && file(keystorePath).exists() &&
+        !keystorePass.isNullOrBlank()
+
+    signingConfigs {
+        if (hasFixedKey) {
+            create("fixed") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePass
+                keyAlias = keyAliasName
+                this.keyPassword = keyPassword
+                // v1 matters: LSPosed parses the APK on older paths, and some file
+                // managers install via the legacy verifier.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         // No shrinking on either variant: the Xposed entry class is loaded by name
         // from assets/xposed_init and stack traces must stay readable.
-        debug { isMinifyEnabled = false }
-        release { isMinifyEnabled = false }
+        debug {
+            isMinifyEnabled = false
+            if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
+        }
+        release {
+            isMinifyEnabled = false
+            if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
+        }
     }
 
     compileOptions {
