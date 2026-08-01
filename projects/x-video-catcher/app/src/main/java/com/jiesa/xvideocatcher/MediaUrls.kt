@@ -108,9 +108,14 @@ object MediaUrls {
      * Variant playlists (`/pl/avc1/1920x1080/…`) are deliberately excluded: they carry
      * one resolution only, and picking from them would mean trusting whichever quality
      * the player happened to switch to rather than the best available.
+     *
+     * The optional `pu/` segment is not cosmetic: `ext_tw_video` (user uploads) inserts it
+     * between the id and the track, so a pattern demanding `<id>/pl/` classified every
+     * user-upload master as a variant — the download path would then have had nothing to
+     * work from for exactly the videos Jay cares about most.
      */
     private val MASTER_PLAYLIST = Regex(
-        """/(?:amplify_video|ext_tw_video|tweet_video)/\d+/pl/[A-Za-z0-9_-]+\.m3u8""",
+        """/(?:amplify_video|ext_tw_video|tweet_video)/\d+/(?:pu/)?pl/[A-Za-z0-9_-]+\.m3u8""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -164,17 +169,44 @@ object MediaUrls {
             ?.first
 
     /**
-     * Rewrites a photo URL to the full stored image.
+     * The largest rendering X will serve for any stored format.
+     *
+     * `name=orig` looks like the obvious choice and is what every guide recommends, but
+     * measured against Jay's own captured photos it **404s whenever `format` does not
+     * match how the image is stored**: three PNG photos returned 404 for
+     * `format=jpg&name=orig` while answering 200 for `format=png&name=orig`. Since the
+     * stored format is not knowable from the URL, `orig` is unsafe to request blindly.
+     *
+     * `4096x4096` has neither problem: it returned 200 for every captured photo in both
+     * formats, and on the 8 JPEGs where `orig` did work it returned a byte-identical
+     * response. X caps uploads below 4096px, so this is the full image, not a resize.
+     */
+    private const val LARGEST_SIZE = "4096x4096"
+
+    /**
+     * Rewrites a photo URL to the full-size image.
      *
      * X keeps one image per photo and resizes on request, so quality is a query
-     * parameter, not a separate URL: `name=small|medium|large|4096x4096|orig`. Any
-     * existing `name` is replaced, and a missing one is added, so the result is the
-     * largest rendering regardless of which size the timeline happened to load.
+     * parameter rather than a separate URL: `name=tiny|small|medium|large|4096x4096`.
+     * Any existing `name` is replaced and a missing one is added, so the result is the
+     * full image regardless of which size the timeline happened to load — captures show
+     * X asking for `large` and `tiny` only, never the full one.
      *
-     * The extension form (`/media/KEY.jpg`) is converted to the query form, because
-     * `.jpg?name=orig` is honoured but leaves the format pinned; `?format=jpg&name=orig`
-     * is the shape X's own clients use. Returns the input unchanged when it is not a
-     * photo URL, so callers can apply it blindly.
+     * `format` is **preserved rather than guessed** wherever one is given: the same photo
+     * is stored as `png` or `jpg`, and forcing `jpg` onto a PNG re-encodes it at a
+     * fraction of the size (358430 → 29817 bytes on a captured photo). A path extension
+     * is folded into `format` for the same reason.
+     *
+     * Two exceptions, both measured rather than assumed:
+     *  - `format=webp` is dropped. It is a display-time transcode X requests for
+     *    thumbnails, not a stored format — the same photos were also fetched as
+     *    `format=jpg`, and jpg comes back 45% larger (275762 → 360662 bytes).
+     *  - `format` is never omitted. Requesting `?name=4096x4096` with no format 404s on
+     *    every captured photo, so when there is nothing to preserve `jpg` is supplied as
+     *    the default X itself uses for these.
+     *
+     * Returns the input unchanged when it is not a photo URL, so callers can apply it
+     * blindly.
      */
     fun highestQualityPhoto(url: String): String {
         if (!isPhoto(url)) return url
@@ -195,7 +227,8 @@ object MediaUrls {
             }
             .toMutableList()
 
-        // Move a path extension into format=, so one canonical shape comes out.
+        // A path extension is the stored format, so fold it into format= rather than
+        // dropping it — losing it is what would let a PNG be re-encoded as JPEG.
         val dot = path.lastIndexOf('.')
         val slash = path.lastIndexOf('/')
         if (dot > slash) {
@@ -207,14 +240,22 @@ object MediaUrls {
                 }
             }
         }
-        if (params.none { it.first.equals("format", ignoreCase = true) }) {
-            params += "format" to "jpg"
-        }
 
         val rebuilt = params
             .filterNot { it.first.equals("name", ignoreCase = true) }
+            // webp is a display-time transcode for thumbnails, not the stored format.
+            .filterNot {
+                it.first.equals("format", ignoreCase = true) &&
+                    it.second.equals("webp", ignoreCase = true)
+            }
             .toMutableList()
-        rebuilt += "name" to "orig"
+
+        // Never leave format off: with no format the CDN 404s this size on every
+        // captured photo, so a dropped webp has to be replaced rather than just removed.
+        if (rebuilt.none { it.first.equals("format", ignoreCase = true) }) {
+            rebuilt += "format" to "jpg"
+        }
+        rebuilt += "name" to LARGEST_SIZE
 
         return path + "?" + rebuilt.joinToString("&") { "${it.first}=${it.second}" } + fragment
     }

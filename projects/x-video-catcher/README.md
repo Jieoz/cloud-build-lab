@@ -69,25 +69,52 @@ Consequences for the download stage:
 - **Segment boundaries are not always 3000-aligned** — a final segment `0/2237` was
   captured. Range arithmetic must not assume fixed-length chunks.
 - Audio is served at 32000 or 128000; both appear, per video.
-- `kind` observed so far: `amplify_video` only, across both captures. `ext_tw_video`
-  (user uploads) and `tweet_video` (GIFs) are handled by the filter but still unconfirmed
-  against a capture.
+- **`ext_tw_video` (user uploads) inserts a `pu/` segment** between the id and the track:
+  `/ext_tw_video/<id>/pu/pl/<key>.m3u8`. A master pattern demanding `<id>/pl/` classified
+  all three captured user-upload masters as variants. `tweet_video` (GIFs) is still
+  unconfirmed — no capture has produced one.
 
 ### Photos
+
+Confirmed on-device: 78 photo records across `/media/` (40), `/amplify_video_thumb/` (32)
+and `/ext_tw_video_thumb/` (6), with zero avatars, emoji, or card previews slipping
+through the filter.
 
 Photos are on a **different host with a different quality mechanism**, which is why
 `MediaUrls` splits selection in two. X stores one image and resizes on request, so
 quality is a query parameter rather than a path element:
 
 ```
-https://pbs.twimg.com/media/<key>?format=jpg&name=small      ~680px
-https://pbs.twimg.com/media/<key>?format=jpg&name=orig       full stored size
-https://pbs.twimg.com/media/<key>.jpg                        defaults to medium
+https://pbs.twimg.com/media/<key>?format=jpg&name=tiny        X's own thumbnail request
+https://pbs.twimg.com/media/<key>?format=jpg&name=large       X's own full-view request
+https://pbs.twimg.com/media/<key>?format=jpg&name=4096x4096   the full image
+https://pbs.twimg.com/media/<key>.jpg                         extension form (posters)
 ```
 
-`MediaUrls.highestQualityPhoto` rewrites any of these to `name=orig`, so a download lands
-on the full image regardless of which size the timeline happened to load. It is
-idempotent and returns non-photo URLs unchanged, so callers can apply it blindly.
+`MediaUrls.highestQualityPhoto` rewrites any of these to `name=4096x4096`, preserving the
+format. It is idempotent and returns non-photo URLs unchanged, so callers can apply it
+blindly.
+
+Two counter-intuitive rules, both measured against the captured photos rather than
+assumed — the obvious version of this function was wrong on both counts:
+
+- **Not `name=orig`.** Every guide recommends it, and it returns **404** whenever
+  `format` does not match how the image is stored: three captured PNG photos 404'd for
+  `format=jpg&name=orig` while answering 200 for `format=png&name=orig`. The stored format
+  is not knowable from the URL. `4096x4096` returned 200 for every captured photo in both
+  formats, and was byte-identical to `orig` on the 8 JPEGs where `orig` worked.
+- **`format` is preserved, never forced to jpg, and never omitted.** Forcing jpg onto a
+  PNG re-encodes it (358430 → 29817 bytes on a captured photo). Omitting it entirely also
+  404s. The one exception is `format=webp`, a display-time transcode X requests for
+  thumbnails: it is replaced with jpg, which comes back 45% larger for the same photo
+  (275762 → 360662 bytes).
+
+Verified live against the CDN, not just in unit tests: all 34 distinct rewritten photo
+URLs from the captures return 200, none loses pixels versus the size X itself requested,
+and 23 gain (one went 239244 → 701081 bytes, so `large` genuinely is not enough). The
+verifier decodes image dimensions rather than comparing byte counts — a larger image can
+re-encode smaller, and a captured poster does exactly that (675x1200/50119B →
+720x1280/48498B), which a byte comparison reports as a regression.
 
 Filtering is stricter here than for video. A timeline scroll fetches hundreds of avatars,
 emoji, and card previews from the same host; those are excluded by path
@@ -96,10 +123,8 @@ emoji, and card previews from the same host; those are excluded by path
 and the photos the user asked for become unfindable — the same failure as the
 `robots.txt` case above.
 
-Not yet confirmed on-device: no capture so far contains a single `pbs.twimg.com` hit,
-because until `0.6.0` the filter only recognised the video host. The photo rules are
-therefore verified against the documented URL grammar and unit tests, not against a
-capture from Jay's device.
+Both hooks see photos: 39 records arrived via `java.net.URL` and 39 via
+`okhttp3.Request.Builder.url`, i.e. the same requests observed at two layers.
 
 ## Getting the log out
 
@@ -168,6 +193,19 @@ dropping every record.
 
 Do not add `android.aapt2FromMavenOverride` to `gradle.properties` — that is a
 host-specific path and the Maven aapt2 is x86_64-only.
+
+`tools/verify_photo_urls.py` replays a capture through the photo rules and **fetches every
+rewritten URL from the live CDN**, comparing decoded image dimensions. Run it locally
+after changing anything in the photo path:
+
+```
+python3 tools/verify_photo_urls.py path/to/xvc-probe-*.jsonl
+```
+
+It is deliberately not a CI step: it depends on the public CDN, so wiring it into the
+build would let an outage fail an unrelated commit. Unit tests pin the rewrite's output
+shape; this proves that shape actually resolves. Only unit tests caught neither the
+`name=orig` 404 nor the webp downgrade — both needed a real request.
 
 Note: `scripts/cloud_build_register_project.py` regenerates this README and the workflow
 from templates. Re-apply the unit-test and APK-contract steps after re-registering.

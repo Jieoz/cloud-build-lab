@@ -286,41 +286,120 @@ class MediaUrlsTest {
 
     /**
      * The point of the rewrite: whichever size the timeline loaded, the download must
-     * land on the full stored image.
+     * land on the full image. Captures show X asking only for `large` and `tiny`.
+     *
+     * The target is `4096x4096`, not `orig`, and that is a measured choice — see
+     * [photo rewrite never asks for orig, which 404s on png photos].
      */
     @Test
-    fun `photo url is rewritten to the original size`() {
+    fun `photo url is rewritten to the largest size`() {
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=jpg&name=orig",
-            MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY?format=jpg&name=small"),
+            "https://pbs.twimg.com/media/KEY?format=jpg&name=4096x4096",
+            MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY?format=jpg&name=large"),
         )
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=jpg&name=orig",
-            MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY?format=jpg&name=4096x4096"),
+            "https://pbs.twimg.com/media/KEY?format=jpg&name=4096x4096",
+            MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY?format=jpg&name=tiny"),
         )
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=jpg&name=orig",
+            "https://pbs.twimg.com/media/KEY?format=jpg&name=4096x4096",
             MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY"),
         )
     }
 
-    /** A path extension becomes format=, so one canonical shape comes out. */
+    /**
+     * `name=orig` is what every guide recommends and it is wrong here. Measured against
+     * the captured photos, `format=jpg&name=orig` returns **404** for photos stored as
+     * PNG, while `4096x4096` answered 200 for every captured photo in both formats and
+     * was byte-identical to `orig` on the 8 JPEGs where `orig` did work.
+     */
+    @Test
+    fun `photo rewrite never asks for orig, which 404s on png photos`() {
+        val out = MediaUrls.highestQualityPhoto(
+            "https://pbs.twimg.com/media/HOmXCrJbQAA4YJp?format=png&name=large"
+        )
+        assertFalse("orig 404s when format does not match storage", out.contains("name=orig"))
+        assertTrue(out.contains("name=4096x4096"))
+    }
+
+    /**
+     * Forcing jpg onto a PNG photo re-encodes it: a captured photo went from 358430 to
+     * 29817 bytes that way. The stored format has to survive the rewrite.
+     */
+    @Test
+    fun `png photos keep their format instead of being forced to jpg`() {
+        assertEquals(
+            "https://pbs.twimg.com/media/HOmXCrJbQAA4YJp?format=png&name=4096x4096",
+            MediaUrls.highestQualityPhoto(
+                "https://pbs.twimg.com/media/HOmXCrJbQAA4YJp?format=png&name=large"
+            ),
+        )
+    }
+
+    /**
+     * webp is a display-time transcode X requests for thumbnails, not a stored format —
+     * the same captured photos were also fetched as jpg, which comes back 45% larger
+     * (275762 vs 360662 bytes). It gets replaced rather than preserved.
+     */
+    @Test
+    fun `webp is replaced with jpg rather than preserved`() {
+        assertEquals(
+            "https://pbs.twimg.com/media/HOorBqIb0AAvMim?format=jpg&name=4096x4096",
+            MediaUrls.highestQualityPhoto(
+                "https://pbs.twimg.com/media/HOorBqIb0AAvMim?format=webp&name=tiny"
+            ),
+        )
+    }
+
+    /**
+     * Dropping webp must not leave `format` off: `?name=4096x4096` with no format 404s
+     * on every captured photo, so the parameter always has to be present.
+     */
+    @Test
+    fun `rewritten photo url always carries a format`() {
+        val inputs = listOf(
+            "https://pbs.twimg.com/media/KEY?format=webp&name=tiny",
+            "https://pbs.twimg.com/media/KEY?name=large",
+            "https://pbs.twimg.com/media/KEY",
+            "https://pbs.twimg.com/media/KEY.jpg",
+        )
+        for (u in inputs) {
+            assertTrue("no format= in rewrite of $u", MediaUrls.highestQualityPhoto(u).contains("format="))
+        }
+    }
+
+    /** A path extension is the stored format, so it is folded in rather than dropped. */
     @Test
     fun `photo extension is folded into the format parameter`() {
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=jpg&name=orig",
+            "https://pbs.twimg.com/media/KEY?format=jpg&name=4096x4096",
             MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY.jpg"),
         )
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=png&name=orig",
+            "https://pbs.twimg.com/media/KEY?format=png&name=4096x4096",
             MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY.png"),
+        )
+    }
+
+    /**
+     * Video posters use the extension form. Captured live, the rewritten form returns a
+     * larger image than the `.jpg` X requested (720x1280 vs 675x1200).
+     */
+    @Test
+    fun `captured video poster is rewritten to the query form`() {
+        assertEquals(
+            "https://pbs.twimg.com/amplify_video_thumb/2082864630440091648/img/4fwDG9dTpjBt-i6j" +
+                "?format=jpg&name=4096x4096",
+            MediaUrls.highestQualityPhoto(
+                "https://pbs.twimg.com/amplify_video_thumb/2082864630440091648/img/4fwDG9dTpjBt-i6j.jpg"
+            ),
         )
     }
 
     @Test
     fun `existing format is kept when replacing the size`() {
         assertEquals(
-            "https://pbs.twimg.com/media/KEY?format=png&name=orig",
+            "https://pbs.twimg.com/media/KEY?format=png&name=4096x4096",
             MediaUrls.highestQualityPhoto("https://pbs.twimg.com/media/KEY?name=large&format=png"),
         )
     }
@@ -336,5 +415,87 @@ class MediaUrlsTest {
     fun `rewriting leaves video urls alone`() {
         val master = "https://video.twimg.com/amplify_video/1/pl/k.m3u8"
         assertEquals(master, MediaUrls.highestQualityPhoto(master))
+    }
+
+    // --- ext_tw_video: the `pu/` path segment -----------------------------------
+
+    /**
+     * User uploads insert `pu/` between the id and the track. A pattern demanding
+     * `<id>/pl/` labelled all three captured user-upload masters as variants, which
+     * would have left the download path with nothing to start from for exactly the
+     * videos worth downloading. Captured verbatim.
+     */
+    @Test
+    fun `captured ext_tw_video master is recognised despite the pu segment`() {
+        assertTrue(
+            MediaUrls.isMasterPlaylist(
+                "https://video.twimg.com/ext_tw_video/2083304240613888000/pu/pl/bhU45nXNm7ekYLia.m3u8?tag=12"
+            )
+        )
+        assertTrue(
+            MediaUrls.isMasterPlaylist(
+                "https://video.twimg.com/ext_tw_video/2082862956648513536/pu/pl/ZS2EucO3WQS6lxwX.m3u8?tag=12"
+            )
+        )
+        assertTrue(
+            MediaUrls.isMasterPlaylist(
+                "https://video.twimg.com/ext_tw_video/2028482401027162112/pu/pl/eiovNvtmSr1WmOOd.m3u8?tag=12"
+            )
+        )
+    }
+
+    /** `pu/` must not make variants look like masters either. Captured verbatim. */
+    @Test
+    fun `captured ext_tw_video variants are still not masters`() {
+        assertFalse(
+            MediaUrls.isMasterPlaylist(
+                "https://video.twimg.com/ext_tw_video/2083304240613888000/pu/pl/avc1/720x1280/1dw-tz0anED11q1v.m3u8"
+            )
+        )
+        assertFalse(
+            MediaUrls.isMasterPlaylist(
+                "https://video.twimg.com/ext_tw_video/2083304240613888000/pu/pl/mp4a/32000/y9JpY5FLkXGUD1BL.m3u8"
+            )
+        )
+    }
+
+    @Test
+    fun `captured ext_tw_video tracks and id are parsed`() {
+        assertEquals(
+            "2082862956648513536",
+            MediaUrls.mediaId(
+                "https://video.twimg.com/ext_tw_video/2082862956648513536/pu/vid/avc1/0/3000/720x960/XIZ3A1koUydYzKLc.m4s"
+            ),
+        )
+        assertTrue(
+            MediaUrls.isAudioTrack(
+                "https://video.twimg.com/ext_tw_video/2082862956648513536/pu/aud/mp4a/0/3000/128000/UOxAcxY4zRwQi3XA.m4s"
+            )
+        )
+        assertTrue(
+            MediaUrls.isVideoTrack(
+                "https://video.twimg.com/ext_tw_video/2082862956648513536/pu/vid/avc1/0/3000/720x960/XIZ3A1koUydYzKLc.m4s"
+            )
+        )
+    }
+
+    /**
+     * A captured final segment ends at 6162, not a 3000 multiple, and one variant ladder
+     * contained 606x1078 — neither fits a fixed-step assumption, so resolution handling
+     * must read the value rather than match known sizes.
+     */
+    @Test
+    fun `off-ladder resolutions are read rather than matched`() {
+        assertEquals(606 to 1078, MediaUrls.resolution(
+            "https://video.twimg.com/amplify_video/1/vid/avc1/0/3000/606x1078/k.m4s"))
+        assertEquals(
+            "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/6000/6162/720x960/k.m4s",
+            MediaUrls.highestResolution(
+                listOf(
+                    "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/0/3000/320x568/k.m4s",
+                    "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/6000/6162/720x960/k.m4s",
+                )
+            ),
+        )
     }
 }
