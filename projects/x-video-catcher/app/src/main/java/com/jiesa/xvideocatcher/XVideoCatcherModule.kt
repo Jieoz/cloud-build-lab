@@ -38,15 +38,39 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         val attached = mutableListOf<String>()
         val skipped = mutableListOf<String>()
 
+        // First: nothing can be written to disk until a Context exists.
+        bindHostContext(attached, skipped)
         hookUrlConstruction(attached, skipped)
         hookMediaPlayer(attached, skipped)
         hookCronet(param.classLoader, attached, skipped)
         hookOkHttp(param.classLoader, attached, skipped)
 
         ProbeLog.line("probe layers active=$attached inactive=$skipped")
-        // Write immediately rather than waiting for the first media URL, so the log
-        // file proves attachment on its own.
-        ProbeLog.flushNow()
+    }
+
+    /**
+     * Hands the host Context to [ProbeLog] as soon as one exists.
+     *
+     * This is not optional plumbing: `handleLoadPackage` runs *before* the host's
+     * Application is created, so at attach time there is no Context and nothing can be
+     * written. Hooking `Application.onCreate` is the first moment a usable Context
+     * exists, and binding it there is what makes the log file appear without waiting
+     * for a video to play.
+     */
+    private fun bindHostContext(
+        attached: MutableList<String>,
+        skipped: MutableList<String>,
+    ) = layer("Application.onCreate", attached, skipped) {
+        XposedHelpers.findAndHookMethod(
+            android.app.Application::class.java,
+            "onCreate",
+            object : XC_MethodHook() {
+                override fun afterHookedMethod(hookParam: MethodHookParam) {
+                    val app = hookParam.thisObject as? android.content.Context ?: return
+                    ProbeLog.bindContext(app)
+                }
+            },
+        )
     }
 
     /**

@@ -102,4 +102,42 @@ object ProbeSink {
         File(dir, fileName()).appendText(payload)
         true
     }.getOrDefault(false)
+
+    // --- test seams -------------------------------------------------------------
+    // These read back through the same MediaStore path used for writing, so tests
+    // assert on what actually landed on disk rather than on a stand-in.
+
+    internal fun readLinesForTest(context: Context): List<String> = runCatching {
+        val uri = locateForTest(context) ?: return emptyList()
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            stream.readBytes().toString(Charsets.UTF_8)
+                .split("\n")
+                .filter { it.isNotBlank() }
+        } ?: emptyList()
+    }.getOrDefault(emptyList())
+
+    internal fun existsForTest(context: Context): Boolean = locateForTest(context) != null
+
+    internal fun deleteForTest(context: Context) {
+        runCatching {
+            locateForTest(context)?.let { context.contentResolver.delete(it, null, null) }
+        }
+    }
+
+    private fun locateForTest(context: Context) = runCatching {
+        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        context.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+            arrayOf("${Environment.DIRECTORY_DOWNLOADS}/$DIR_NAME/", fileName()),
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                android.content.ContentUris.withAppendedId(collection, cursor.getLong(0))
+            } else {
+                null
+            }
+        }
+    }.getOrNull()
 }
