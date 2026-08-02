@@ -45,6 +45,10 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         hookCronet(param.classLoader, attached, skipped)
         hookOkHttp(param.classLoader, attached, skipped)
 
+        // The download entry point. Installed after the network layers so that by the time a
+        // menu can be opened, the layers feeding MediaRegistry are already live.
+        MenuInjector.install(attached, skipped)
+
         ProbeLog.line("probe layers active=$attached inactive=$skipped")
     }
 
@@ -215,6 +219,16 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
             MediaUrls.isManifest(url) -> "variant"
             else -> "segment"
         }
+
+        // Feed the download button. Only masters and photos are remembered: a master is the
+        // only video URL a download can work from (variant and segment keys are random and
+        // unrelated, so nothing can be derived from them), and a photo is a single request.
+        // Recording variants here would let the menu offer a download it cannot complete.
+        when (kind) {
+            "master" -> MediaUrls.mediaId(url)?.let { MediaRegistry.rememberMaster(it, url) }
+            "photo" -> MediaRegistry.rememberPhoto(url)
+        }
+
         ProbeLog.candidate("$source/$kind", url, Throwable().stackTrace)
     }
 

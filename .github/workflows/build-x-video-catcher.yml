@@ -195,6 +195,24 @@ jobs:
             from,fetchFor \
             classes*.dex
 
+      # The download and UI layers. These are gated for the same reason as the parsers: the
+      # module is loaded by name at runtime, so a class that silently failed to make it into
+      # the APK produces a menu with no download entry and no error anywhere.
+      - name: Verify download and menu layers are present in the APK
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dexcheck"
+          check() {
+            python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" "$1" "$2" classes*.dex
+          }
+          check MediaRegistry rememberMaster,rememberPhoto,latestVideo,latestPhoto,hasAnything,clear
+          check DownloadTarget photoSpec,videoSpec
+          check MediaSaver save,scratchDir
+          check TrackDownloader download,downloadTo
+          check Muxer mux
+          check DownloadJob downloadVideo,downloadPhoto
+          check MenuInjector install
+
       # The checker must be able to fail. A tool that reports success unconditionally is
       # indistinguishable from a passing gate, and this one has already been wrong once
       # (an x86_64 dexdump exiting 126 with empty output read as "not found").

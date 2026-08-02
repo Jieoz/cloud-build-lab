@@ -21,7 +21,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="Probe: log X (Twitter) video playback URL resolution" />
+            android:value="Download X (Twitter) videos and photos from the viewer's more menu" />
         <meta-data
             android:name="xposedminversion"
             android:value="82" />

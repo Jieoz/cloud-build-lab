@@ -1,9 +1,12 @@
-# X Video Catcher (probe stage)
+# X Video Catcher
 
-An LSPosed module targeting the X (Twitter) Android client. **Stage 1 is a read-only
-probe**: it does not add a download button and does not modify the host app. Its job is
-to find out where X hands a playable media URL to its player on a real device, which is
-the prerequisite for any download feature.
+An LSPosed module targeting the X (Twitter) Android client. It downloads videos and photos
+from X, adding a **下载视频 / 下载图片** entry to the overflow ("more") menu on the viewer
+screen. Saved files land in `Movies/XVideoCatcher/` and `Pictures/XVideoCatcher/`.
+
+The probe layer that made this possible is still present and still writes its log: every
+design rule below was measured on-device rather than assumed, and three of them contradict
+what the obvious implementation would do.
 
 ## Target
 
@@ -252,8 +255,106 @@ framework rewrites `ModuleStatus.isModuleActive()`, so "not active" is a real re
 not a stored flag). It cannot confirm the hook attached inside X — the log file existing
 is what proves that, which is why it is written on attach rather than on first URL.
 
+## Downloading
+
+The download path is seven small pieces, each with one job:
+
+| Class | Role |
+| --- | --- |
+| `MediaRegistry` | remembers the masters and photos most recently fetched, so the menu has a target |
+| `DownloadPlan` | picks renditions from a master, or reports that none can be used |
+| `Http` | `HttpURLConnection` fetches with retry |
+| `TrackDownloader` | one HLS track → one playable fMP4 file |
+| `Muxer` | video track + audio track → one MP4, via `MediaMuxer` |
+| `MediaSaver` | writes into shared storage through MediaStore |
+| `MenuInjector` | the menu entry, the tap handler, and the result toast |
+
+### Why the tracks are muxed and not concatenated
+
+X serves **fragmented MP4**, confirmed by reading real segment bytes: an init segment is
+`ftyp`/`free`/`moov` and a media segment is `styp`/`moof`/`mdat`. Two consequences, and they
+pull in opposite directions:
+
+- *Within* one track, `init + segments…` concatenated **is** a valid file. Verified against
+  a live capture: the assembled 1080x1920 h264 track and the 128kbps aac track both parsed,
+  with matching durations (24.017s / 24.009s). Dropping the `#EXT-X-MAP` init segment yields
+  sample data with no track description — unplayable everywhere, and it looks like a corrupt
+  download rather than a missing box.
+- *Across* tracks, concatenation is **wrong**. The result holds two unrelated `moov` headers
+  and players read the first only, so "video with sound" comes out silent while the download
+  reports success. `Muxer` therefore remuxes both tracks into one container with
+  `MediaMuxer` — sample copying, no re-encode, no quality loss, no codec dependency.
+
+Timestamps are copied from the extractor rather than generated: the measured audio and video
+durations do not divide evenly, so synthesised timing drifts audio out of sync.
+
+End-to-end verified on two real videos, master → tracks → mux → probe: `1080x1920 / 45.7s /
+13MB` and `1080x1596 / 24min / 371MB` (484 video + 484 audio segments), both h264+aac. Both
+selected the **128000** audio track — X's own player had only ever requested 32000.
+
+### Where files go, and why not Downloads
+
+MediaStore under `Movies/` and `Pictures/`, not `Downloads/`. This code runs inside **X's**
+process, so an app-private write lands in X's sandbox where neither this module's UI nor the
+gallery can reach it. MediaStore makes the writing process the owner, so no runtime
+permission is needed on API 29+. `Downloads/` is worse than useless here: Android shows a
+non-media file there only to its creator, so a video saved there would be invisible to the
+gallery while the download reported success. Writes are bracketed with `IS_PENDING` so a
+half-written file never appears, and a failed write deletes its row rather than leaving a
+0-byte "video".
+
+Names carry CDN identity (`x_<mediaId>_1080x1920.mp4`, `x_<photoKey>.jpg`), which is what
+makes a re-tap resolve to "already saved" instead of a second copy under a new timestamp.
+Photo extension and MIME come from the stored `format`, never a guess — forcing jpg onto a
+PNG re-encodes it.
+
+### The menu entry
+
+Hooks target `Activity.onCreateOptionsMenu` / `onPrepareOptionsMenu` / `onOptionsItemSelected`
+— framework names, because X's own are R8-obfuscated and pairip-wrapped and change every
+release. Both creation methods are hooked with a `findItem` duplicate guard, since some
+screens build the menu once and others rebuild it as the viewed item changes.
+
+`onOptionsItemSelected` sets `param.result = true` **only** for our own item ids; every other
+item falls through to X untouched. Swallowing all menu taps is the kind of breakage that
+looks like the module broke the app.
+
+The entry appears only when `MediaRegistry` holds something downloadable. On a media post the
+playlist is necessarily fetched before anything can display, so the registry is populated by
+the time the menu opens; a permanent "下载" that reports "nothing here" on a text post just
+teaches the user to distrust it.
+
+Video and photo are tracked in **separate** slots. A video post also fetches a poster from
+`pbs.twimg.com` *after* the playlist, so a single "latest media" slot would hand over a
+thumbnail every time a video was requested. Poster paths are rejected on the way into the
+photo slot for the same reason.
+
+Downloads run on a daemon thread and report by toast. Tapping download must return
+immediately — downloading on the UI thread freezes X and trips its own ANR watchdog. Failures
+name the stage (`master` / `video` / `audio` / `mux` / `save`), because "下载失败" alone cannot
+distinguish an expired playlist from a storage problem from a container problem.
+
+### Photo quality is not free
+
+`highestQualityPhoto` rewrites to `name=4096x4096`, and it matters: re-measured live against
+the captures, one photo went 239244 → 701081 bytes (2.93x) versus the `name=large` X itself
+requested, while three were already at full size and stayed byte-identical. Saving the URL as
+captured silently saves a downscaled copy.
+
 ## Status
 
-Stage 1 (probe) implemented, with log export. The download feature is deliberately not
-built yet: it should be designed against the hook points the probe actually confirms
-on-device, not against guesses.
+Video and photo download implemented, with the menu entry, muxing, and MediaStore output.
+84 unit tests (10 fail on ARM only — Robolectric has no aarch64 conscrypt; they pass on CI
+x86_64). CI gates every download class at the dex level, with a self-test that fails the
+build if the checker accepts a fabricated method name.
+
+Known limits, measured rather than assumed:
+
+- **7 of 33 captured videos are not fully downloadable.** 5 captured only a video variant
+  (downloadable at reduced quality); 2 captured only segments and cannot be assembled,
+  because each segment key is random and the missing ones cannot be enumerated. Both cases
+  report `NoRenditions` instead of guessing a URL.
+- **The download target is inferred** from the most recently fetched media, because X's view
+  model is not readable under obfuscation. In practice the viewed item is the last fetched
+  one; a post opened without its media loading has nothing to offer.
+- **`tweet_video` (GIFs) is still unconfirmed** — no capture has produced one.
