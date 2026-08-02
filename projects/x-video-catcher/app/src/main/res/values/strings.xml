@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">X Video Catcher (Probe)</string>
+    <string name="app_name">X Video Catcher</string>
 
-    <string name="status_active">Module active — probe is attached to X.</string>
+    <string name="status_active">Module active — attached to X. Open a video or photo, tap
+        the more menu, then 下载视频 / 下载图片.</string>
     <string name="status_inactive">Module NOT active. Enable it in LSPosed, tick X in
         the scope list, then force-stop X so it restarts with the module loaded.</string>
 
