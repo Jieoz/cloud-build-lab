@@ -5,17 +5,14 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import java.io.File
 import java.io.OutputStream
 
 /**
  * Writes a finished download into the user's shared storage.
  *
- * The destination is MediaStore, not app-private storage, and that is a correctness
- * requirement rather than a preference: this code runs **inside X's process**, so an
- * app-private write would land in X's sandbox where neither our own UI nor the user's
- * gallery can reach it. MediaStore makes the writing process the owner, so no runtime
- * permission is needed on API 29+ and the file is visible to everything.
+ * The destination is MediaStore rather than app-private storage so the file lands in the
+ * user's gallery, which is the whole point of saving it. MediaStore also makes the writing
+ * process the owner, so no runtime storage permission is needed on API 29+.
  *
  * The same lesson applies in reverse and is why photos and videos go to `Pictures/` and
  * `Movies/` instead of `Downloads/`: a non-media file in Downloads is only visible to its
@@ -149,15 +146,4 @@ object MediaSaver {
             }
         }
     }.getOrNull()
-
-    /**
-     * A scratch directory for the intermediate audio/video tracks that get muxed together.
-     *
-     * Deliberately app-private (`cacheDir`): these files are useless to the user and must
-     * not appear in the gallery even briefly. Because the hook runs inside X, this is X's
-     * cache dir — so the files are removed as soon as the mux finishes rather than left for
-     * the system to reclaim from someone else's quota.
-     */
-    fun scratchDir(context: Context): File =
-        File(context.cacheDir, "xvc-scratch").apply { mkdirs() }
 }

@@ -9,24 +9,22 @@ android {
 
     defaultConfig {
         applicationId = "com.jiesa.xvideocatcher"
-        // LSPosed needs Android 8.1+; Jay's target device is Android 14 (API 34).
+        // Matches the host: X 12.13 declares minSdk 28, so a lower floor here could never be
+        // exercised — the module only ever runs inside that process.
         minSdk = 28
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9.0-recon"
+        versionCode = 10
+        versionName = "1.0.0"
     }
 
     buildFeatures { buildConfig = true }
 
-    // A fixed signing key, so every build can be installed over the previous one.
-    // Android refuses an update whose signature differs, and the auto-generated debug
-    // keystore is per-machine — on a CI runner it is regenerated every run, which made
-    // each build uninstallable over the last.
+    // A fixed signing key, so every build installs over the previous one. Android refuses an
+    // update whose signature differs, and the auto-generated debug keystore is per-machine — on
+    // a CI runner it is regenerated every run, which made each build uninstallable over the last.
     //
-    // Supplied via env (CI secrets). Absent locally, the build still works for
-    // compiling and testing but produces a debug-key APK that cannot be used for
-    // in-place upgrades; CI fails outright rather than publishing such an APK, so the
-    // fallback is never what reaches a device.
+    // Supplied via env (CI secrets). Absent locally the build still compiles and tests, but
+    // produces a debug-key APK that cannot upgrade in place; CI fails rather than publish one.
     val keystorePath = System.getenv("XVC_KEYSTORE_PATH")
     val keystorePass = System.getenv("XVC_KEYSTORE_PASSWORD")
     val keyAliasName = System.getenv("XVC_KEY_ALIAS") ?: "xvc"
@@ -41,8 +39,7 @@ android {
                 storePassword = keystorePass
                 keyAlias = keyAliasName
                 this.keyPassword = keyPassword
-                // v1 matters: LSPosed parses the APK on older paths, and some file
-                // managers install via the legacy verifier.
+                // v1 kept for file managers that install via the legacy verifier.
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
@@ -51,8 +48,10 @@ android {
     }
 
     buildTypes {
-        // No shrinking on either variant: the Xposed entry class is loaded by name
-        // from assets/xposed_init and stack traces must stay readable.
+        // Shrinking stays off. R8 would rename this module's own classes, and the entry point in
+        // assets/xposed_init is resolved by name at load time — a renamed entry class means
+        // LSPosed silently loads nothing. Keeping names intact also keeps logcat readable, which
+        // matters more than APK size for a payload with no dependencies.
         debug {
             isMinifyEnabled = false
             if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
@@ -71,20 +70,20 @@ android {
 
     testOptions {
         unitTests {
-            // Robolectric drives the real ProbeSink against a genuine Android context
-            // and asserts on bytes that actually reached disk, which is the only way
-            // to catch a dead log sink without a device.
+            // Robolectric supplies real framework classes, so the URL/naming logic is tested
+            // against actual behaviour instead of stubs.
             isIncludeAndroidResources = true
         }
     }
 }
 
 dependencies {
-    // Provided by the Xposed/LSPosed framework at runtime — never packaged into the APK.
+    // Xposed API: compile-only by definition. The framework provides these classes at runtime;
+    // packaging them would collide with the host's copy and break loading.
     compileOnly("de.robv.android.xposed:api:82")
 
-    // No androidx runtime dependency: the probe UI is plain framework views, and the
-    // log is written by the host process straight into shared Downloads.
+    // Nothing else. HTTP is HttpURLConnection, storage is MediaStore, host access is reflection.
+    // A DI/JSON/networking library here would ship into X's process for work the platform does.
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.12.2")

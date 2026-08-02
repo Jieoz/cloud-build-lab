@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Needed to read X's version into the export header; X is not otherwise
-         visible to us under API 30+ package filtering. -->
-    <queries>
-        <package android:name="com.twitter.android" />
-        <package android:name="com.twitter.android.beta" />
-    </queries>
+    <!--
+      No permissions are declared, deliberately.
+
+      All work happens inside X's process, so downloads run under X's own INTERNET permission and
+      files are written through MediaStore, which needs no permission for media a caller creates.
+      Declaring INTERNET or WRITE_EXTERNAL_STORAGE here would grant this APK capabilities it never
+      exercises, since it has no runnable component of its own.
+    -->
 
     <application
         android:allowBackup="false"
@@ -14,35 +16,37 @@
         android:label="@string/app_name"
         android:supportsRtl="true">
 
-        <!-- Legacy Xposed module descriptor. LSPosed identifies legacy modules by
-             the presence of xposedminversion, then reads assets/xposed_init. -->
+        <!--
+          There is no activity and no service. The APK is a payload for LSPosed to load into X,
+          nothing more: tapping its launcher icon would have nothing to show, so no launcher entry
+          is declared either.
+        -->
+
+        <!-- Read by LSPosed to decide whether to load this APK at all. -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
+
         <meta-data
             android:name="xposeddescription"
-            android:value="Download X (Twitter) videos and photos from the viewer's more menu" />
+            android:value="Adds a download entry to X's share sheet" />
+
+        <!--
+          Minimum Xposed API this module needs. 82 is the level that introduced the hook APIs used
+          here; LSPosed reports 93+, so this is a floor rather than a target.
+        -->
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
-        <!-- Scope hint shown by the LSPosed manager. -->
+
+        <!--
+          Scope hint: LSPosed pre-selects X when the module is enabled, so the user does not have
+          to find the right app in a list of everything installed.
+        -->
         <meta-data
             android:name="xposedscope"
-            android:resource="@array/xposedscope" />
+            android:resource="@array/xposed_scope" />
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <!-- No ContentProvider for probe records on purpose. Under API 30+ package
-             visibility filtering, X could not resolve our authority (its manifest
-             declares no <queries> for us and we cannot change it), so records were
-             silently dropped. The hook now writes to shared Downloads instead. -->
     </application>
 
 </manifest>

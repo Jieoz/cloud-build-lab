@@ -148,7 +148,7 @@ jobs:
           # The framework loads the module by the class named in assets/xposed_init.
           # A missing or misspelled entry means LSPosed silently ignores the module.
           ENTRY=$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')
-          test "$ENTRY" = "com.jiesa.xvideocatcher.XVideoCatcherModule"
+          test "$ENTRY" = "com.jiesa.xvideocatcher.hook.XVideoCatcherModule"
           # xposedminversion is what marks this as a legacy module to LSPosed.
           "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -q 'xposedminversion'
           # The Xposed API must stay provided-only; a bundled copy breaks hooking.
@@ -178,40 +178,37 @@ jobs:
             isInteresting,isManifest,isMasterPlaylist,mediaId,resolution,highestResolution,isAudioTrack,isVideoTrack,isPhoto,photoKey,highestQualityPhoto \
             classes*.dex
 
-      # Playlist parsing and download planning are what turn a captured URL into a file,
-      # so they get the same dex-level check as the URL grammar. Only public API is listed:
-      # Kotlin mangles `internal` members to `name$app_debug`, so gating on those would
-      # pass or fail depending on the variant name rather than on the code being present.
-      - name: Verify playlist parsing and planning are present in the APK
+      # The reflection layer that reads X's own tweet objects. This is what replaced the
+      # URL-capture probe: media now comes from the host's model rather than from sniffed
+      # traffic, so these are the methods whose absence would make the entry a no-op.
+      - name: Verify host reflection layer is present in the APK
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/dexcheck"
           python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
-            HlsPlaylist \
-            isMasterBody,parseMaster,parseMedia \
+            HostShapes \
+            uniqueFieldOfType,uniqueFieldOfTypeName,mediaTypeField,videoInfoField,variantsField,readVariant \
             classes*.dex
           python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
-            DownloadPlan \
-            from,fetchFor \
+            TweetMedia \
+            extract \
             classes*.dex
 
       # The download and UI layers. These are gated for the same reason as the parsers: the
       # module is loaded by name at runtime, so a class that silently failed to make it into
       # the APK produces a menu with no download entry and no error anywhere.
-      - name: Verify download and menu layers are present in the APK
+      - name: Verify download and share-sheet layers are present in the APK
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/dexcheck"
           check() {
             python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" "$1" "$2" classes*.dex
           }
-          check MediaRegistry rememberMaster,rememberPhoto,latestVideo,latestPhoto,hasAnything,clear
           check DownloadTarget photoSpec,videoSpec
-          check MediaSaver save,scratchDir
-          check TrackDownloader download,downloadTo
-          check Muxer mux
-          check DownloadJob downloadVideo,downloadPhoto
-          check MenuInjector install
+          check MediaSaver save
+          check HostDownloader download
+          check ShareSheetInjector install
+          check ModuleStrings downloadLabel,startedLabel,successLabel,failureLabel,noMediaLabel
 
       # The checker must be able to fail. A tool that reports success unconditionally is
       # indistinguishable from a passing gate, and this one has already been wrong once
@@ -221,7 +218,7 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/dexcheck"
           if python3 "$GITHUB_WORKSPACE/projects/x-video-catcher/tools/dexcheck.py" \
-               HlsPlaylist parseMaster,definitelyNotARealMethod classes*.dex >/dev/null 2>&1; then
+               HostShapes readVariant,definitelyNotARealMethod classes*.dex >/dev/null 2>&1; then
             echo "::error::dexcheck.py accepted a method that does not exist; the gate proves nothing"
             exit 1
           fi

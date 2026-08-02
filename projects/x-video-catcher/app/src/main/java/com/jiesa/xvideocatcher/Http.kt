@@ -83,16 +83,29 @@ object Http {
 
     fun text(url: String): String = request(url) { it.readBytes().toString(Charsets.UTF_8) }
 
-    /** Streams a response into [sink], returning the byte count. */
-    fun copyTo(url: String, sink: OutputStream): Long = request(url) { input ->
-        val buffer = ByteArray(64 * 1024)
-        var total = 0L
-        while (true) {
-            val n = input.read(buffer)
-            if (n < 0) break
-            sink.write(buffer, 0, n)
-            total += n
+    /**
+     * Streams a response into [sink], returning the byte count.
+     *
+     * [onBytes] is called with the running total, throttled to roughly every 512 KB rather
+     * than every 64 KB chunk: a 1080p video is ~330 chunks and the callback drives a UI
+     * update, so firing it per chunk floods the main thread with work that renders identically.
+     */
+    fun copyTo(url: String, sink: OutputStream, onBytes: ((Long) -> Unit)? = null): Long =
+        request(url) { input ->
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            var lastReported = 0L
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                sink.write(buffer, 0, n)
+                total += n
+                if (onBytes != null && total - lastReported >= 512 * 1024) {
+                    lastReported = total
+                    onBytes(total)
+                }
+            }
+            onBytes?.invoke(total)
+            total
         }
-        total
-    }
 }

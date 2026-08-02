@@ -1,22 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Shown in LSPosed's module list. User-facing text inside X does not come from here:
+         module resources are not reliably reachable from the host process, so those strings are
+         inlined in ModuleStrings.kt instead. -->
     <string name="app_name">X Video Catcher</string>
-
-    <string name="status_active">Module active — attached to X. Open a video or photo, tap
-        the more menu, then 下载视频 / 下载图片.</string>
-    <string name="status_inactive">Module NOT active. Enable it in LSPosed, tick X in
-        the scope list, then force-stop X so it restarts with the module loaded.</string>
-
-    <string name="log_location">X writes the log here:\n\n%1$s</string>
-    <string name="log_hint">The file appears as soon as X restarts with the module
-        loaded — it does not wait for a video. If it is missing, force-stop X and
-        reopen it.\n\nTo send it: open the folder below, long-press the file, share.</string>
-    <string name="log_note">This app cannot read the file itself: Android only lets the
-        app that created it see it, and X is the writer. That is expected.</string>
-
-    <string name="action_open">Open Downloads folder</string>
-    <string name="action_refresh">Refresh status</string>
-
-    <string name="toast_no_file_manager">No app available to open Downloads. Use your
-        file manager and go to Download/XVideoCatcher.</string>
 </resources>
