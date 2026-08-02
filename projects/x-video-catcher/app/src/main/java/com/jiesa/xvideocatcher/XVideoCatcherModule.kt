@@ -45,9 +45,15 @@ class XVideoCatcherModule : IXposedHookLoadPackage {
         hookCronet(param.classLoader, attached, skipped)
         hookOkHttp(param.classLoader, attached, skipped)
 
-        // The download entry point. Installed after the network layers so that by the time a
-        // menu can be opened, the layers feeding MediaRegistry are already live.
-        MenuInjector.install(attached, skipped)
+        // Reconnaissance only in this build. The options-menu injection is deliberately not
+        // installed: all three of its hooks attached on 0.8.0 and no item ever appeared, which
+        // proves X's three-dot sheet is not a platform options menu. Leaving a hook that
+        // consumes `onOptionsItemSelected` in place while it demonstrably cannot render an item
+        // is pure risk to the host's own menu with no upside.
+        //
+        // Recon records what the injection point actually is, plus whether a tweet id is
+        // observable at all — the share-based design cannot resolve a download without one.
+        Recon.install(attached, skipped)
 
         ProbeLog.line("probe layers active=$attached inactive=$skipped")
     }

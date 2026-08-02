@@ -12,8 +12,8 @@ android {
         // LSPosed needs Android 8.1+; Jay's target device is Android 14 (API 34).
         minSdk = 28
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "0.9.0-recon"
     }
 
     buildFeatures { buildConfig = true }
