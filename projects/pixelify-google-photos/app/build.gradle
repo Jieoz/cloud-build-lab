@@ -1,0 +1,70 @@
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+}
+
+android {
+    namespace "balti.xposed.pixelifygooglephotos"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "balti.xposed.pixelifygooglephotos"
+        minSdk 21
+        targetSdk 35
+        versionCode 6
+        versionName "4.2-lsp102"
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    def keystorePath = System.getenv("PGP_KEYSTORE_PATH")
+    def keystorePass = System.getenv("PGP_KEYSTORE_PASSWORD")
+    def keyAliasName = System.getenv("PGP_KEY_ALIAS") ?: "pgp"
+    def keyPassword = System.getenv("PGP_KEY_PASSWORD") ?: keystorePass
+    def hasFixedKey = keystorePath && file(keystorePath).exists() && keystorePass
+
+    signingConfigs {
+        if (hasFixedKey) {
+            fixed {
+                storeFile file(keystorePath)
+                storePassword keystorePass
+                keyAlias keyAliasName
+                it.keyPassword = keyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            if (hasFixedKey) signingConfig signingConfigs.fixed
+        }
+        release {
+            minifyEnabled false
+            if (hasFixedKey) signingConfig signingConfigs.fixed
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+
+    // Provided by LSPosed 2.2+ at runtime. Packaging it collides with the framework copy.
+    compileOnly 'io.github.libxposed:api:102.0.0'
+}

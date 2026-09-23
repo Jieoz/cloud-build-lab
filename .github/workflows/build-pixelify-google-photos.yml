@@ -1,0 +1,102 @@
+name: Build Pixelify Google Photos APK
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release and upload APK'
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - 'projects/pixelify-google-photos/**'
+      - '.github/workflows/build-pixelify-google-photos.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: projects/pixelify-google-photos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare project for CI
+        run: |
+          rm -f local.properties
+          test -f settings.gradle
+          test -f build.gradle
+          test -f app/build.gradle
+
+      # First cloud build of this fork. There is no installed base signed with a
+      # fixed key yet, so a per-runner debug keystore is acceptable. Freeze a key
+      # before the second release, or the next APK will not install over this one.
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - name: Verify libxposed module contract in APK
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "apk=$APK build-tools=$BT"
+          ENTRY=$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')
+          test "$ENTRY" = "balti.xposed.pixelifygooglephotos.PixelifyModule"
+          PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
+          printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
+          printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
+          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
+          test "$SCOPE" = "com.google.android.apps.photos"
+          if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
+            echo "::error::legacy assets/xposed_init survived packaging"
+            exit 1
+          fi
+          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
+          if grep -E 'xposedmodule|xposedsharedprefs|xposedminversion' /tmp/manifest.txt; then
+            echo "::error::legacy xposed meta-data survived packaging"
+            exit 1
+          fi
+          grep -q 'android:description' /tmp/manifest.txt
+          echo "libxposed contract OK: $ENTRY minApiVersion=102 scope=$SCOPE"
+
+      - name: Record signer
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | tee /tmp/signer.txt
+          grep -m1 -i 'certificate SHA-256 digest' /tmp/signer.txt
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixelify-google-photos-debug-apk
+          path: projects/pixelify-google-photos/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Release
+        if: inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pixelify-google-photos-${{ github.run_number }}
+          files: projects/pixelify-google-photos/app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
