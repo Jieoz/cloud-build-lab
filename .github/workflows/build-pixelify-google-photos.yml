@@ -41,8 +41,10 @@ jobs:
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SM"
+          yes | "$SM" --licenses >/dev/null || true
+          "$SM" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Prepare project for CI
         run: |
