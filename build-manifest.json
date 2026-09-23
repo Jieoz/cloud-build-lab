@@ -31,11 +31,11 @@
       "deliveryType": "apk",
       "releaseAssetPattern": "*.apk"
     },
-    "pixelify-google-photos": {
+    "rimet-mock": {
       "kind": "android-apk",
-      "sourcePath": "projects/pixelify-google-photos",
-      "workflow": "build-pixelify-google-photos.yml",
-      "artifactName": "pixelify-google-photos-debug-apk",
+      "sourcePath": "projects/rimet-mock",
+      "workflow": "build-rimet-mock.yml",
+      "artifactName": "rimet-mock-debug-apk",
       "deliveryType": "apk",
       "releaseAssetPattern": "*.apk"
     }

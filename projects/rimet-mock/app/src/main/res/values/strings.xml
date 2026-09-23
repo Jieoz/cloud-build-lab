@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">锤锤Mock</string>
+    <string name="xposed_description">钉钉模拟定位（LSPosed 2.3 / libxposed API 102 适配版）。仅供开发调试与学习。</string>
+
+    <string name="status_active">模块已激活</string>
+    <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选钉钉与本应用作用域）</string>
+
+    <string name="enable_mock">启用模拟定位</string>
+    <string name="lat">纬度 (latitude)</string>
+    <string name="lng">经度 (longitude)</string>
+    <string name="accuracy">精度 (米)</string>
+    <string name="mask_env">同时屏蔽 WiFi / 基站信息（防交叉校验）</string>
+    <string name="use_current">读取当前定位</string>
+    <string name="save">保存</string>
+    <string name="saved">已保存</string>
+    <string name="err_coords">请填写有效的经纬度</string>
+    <string name="err_no_fix">无法读取当前定位（缺少权限或无最近定位）</string>
+    <string name="hint">保存后在钉钉内重新触发定位即可生效。坐标为高德/GCJ-02 坐标系。</string>
+</resources>
