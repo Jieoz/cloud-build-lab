@@ -30,6 +30,14 @@
       "artifactName": "x-video-catcher-debug-apk",
       "deliveryType": "apk",
       "releaseAssetPattern": "*.apk"
+    },
+    "pixelify-google-photos": {
+      "kind": "android-apk",
+      "sourcePath": "projects/pixelify-google-photos",
+      "workflow": "build-pixelify-google-photos.yml",
+      "artifactName": "pixelify-google-photos-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
     }
   }
 }
