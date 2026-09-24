@@ -6,15 +6,36 @@
     <string name="status_active">模块已激活</string>
     <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选钉钉与本应用作用域）</string>
 
-    <string name="enable_mock">启用模拟定位</string>
+    <string name="enable_mock">总开关：启用模拟定位</string>
+    <string name="add_profile">＋ 新建位置</string>
+    <string name="profiles_title">已保存位置</string>
+    <string name="no_profiles">还没有保存的位置，点上方新建。</string>
+
+    <string name="name">名称</string>
+    <string name="name_hint">例如：公司</string>
+    <string name="capture">读取当前定位与环境</string>
+    <string name="env_captured">已捕获环境快照：WiFi %1$d 个 / 基站 %2$d 个</string>
     <string name="lat">纬度 (latitude)</string>
     <string name="lng">经度 (longitude)</string>
     <string name="accuracy">精度 (米)</string>
-    <string name="mask_env">同时屏蔽 WiFi / 基站信息（防交叉校验）</string>
-    <string name="use_current">读取当前定位</string>
+    <string name="altitude">海拔 (米)</string>
+    <string name="address_section">地址信息（可选，手动填写；不影响打卡范围判定）</string>
+    <string name="address">完整地址</string>
+    <string name="province">省</string>
+    <string name="city">市</string>
+    <string name="district">区/县</string>
+    <string name="street">街道</string>
+    <string name="poi_name">POI 名称</string>
+    <string name="adcode">行政区划代码 (adCode)</string>
+    <string name="jitter">坐标随机抖动（模拟真实漂移）</string>
+    <string name="mask_env">回放 WiFi/基站快照（防交叉校验）</string>
+
+    <string name="edit">编辑</string>
+    <string name="delete">删除</string>
+    <string name="deleted">已删除</string>
     <string name="save">保存</string>
     <string name="saved">已保存</string>
+    <string name="captured">已读取当前定位与环境</string>
     <string name="err_coords">请填写有效的经纬度</string>
-    <string name="err_no_fix">无法读取当前定位（缺少权限或无最近定位）</string>
-    <string name="hint">保存后在钉钉内重新触发定位即可生效。坐标为高德/GCJ-02 坐标系。</string>
+    <string name="hint">坐标为高德/GCJ-02 坐标系。勾选某个位置为激活项并打开总开关后，回钉钉重新触发定位即可生效。地址文字仅用于显示，钉钉打卡范围按经纬度距离判定。</string>
 </resources>

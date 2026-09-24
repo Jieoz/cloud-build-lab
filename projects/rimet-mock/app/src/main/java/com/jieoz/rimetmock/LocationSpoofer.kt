@@ -1,39 +1,42 @@
 package com.jieoz.rimetmock
 
 import android.location.Location
+import android.net.wifi.ScanResult
+import android.net.wifi.WifiInfo
+import android.os.SystemClock
+import android.telephony.CellInfo
 import android.util.Log
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * Clean-room reimplementation of com.fuck.android.rimet's location behaviour.
+ * Clean-room reimplementation of com.fuck.android.rimet's location behaviour on libxposed 102.
  *
- * Design difference from the original module:
- *  - The original **bundled the AMap location SDK** (269 classes) and needed an AMap API key,
- *    because its own UI captured a real fix once. We bundle NO SDK: every AMap type is resolved
- *    from the **host (DingTalk) classloader** at hook time, and the spoofed AMapLocation is
- *    built by reflection against the host's own copy of the class. Nothing proprietary ships in
- *    this APK, so there is no key and no SDK-version coupling.
- *  - The original hooked getLastKnownLocation (returns a fixed fake) and setLocationListener
- *    (wraps the listener, offsetting coordinates by a random ~0.1 m jitter). We do the same two,
- *    reading the target lat/lng from libxposed remote prefs instead of a Parcelled Profile.
+ * Feature parity with the original, minus only auto reverse-geocoding (which required the bundled
+ * AMap SDK + an API key). We bundle NO SDK: every AMap type is resolved from the host (DingTalk)
+ * classloader and the fake AMapLocation is built by reflection against the host's own class.
  *
- * WiFi/cell masking is optional (K_MASK_ENV): returning empty scan/cell results stops a host
- * from cross-checking the fake GPS against the real radio environment. It uses framework
- * WifiManager/TelephonyManager only — no third-party types.
+ *  - getLastKnownLocation()  -> a fully-populated host AMapLocation (all ~24 fields)
+ *  - setLocationListener()   -> wraps the listener; every pushed fix is rewritten to the target
+ *                               (all fields), with optional ~0.1 m jitter, before the host sees it
+ *  - WiFi/cell (when maskEnv) -> replays the profile's *captured, self-consistent* snapshot
+ *                               (marshalled ScanResult/WifiInfo/CellInfo), not an empty list
  */
 object LocationSpoofer {
 
-    private lateinit var host: XposedModuleInterface.PackageReadyParam
-
     fun install(param: XposedModuleInterface.PackageReadyParam) {
-        host = param
         val cl = param.classLoader ?: return
-
         installAMapHooks(cl)
-        if (prefBool(Constants.K_MASK_ENV, false)) installEnvMask(cl)
+        installEnvHooks()
+    }
+
+    private fun profile(): Profile? {
+        val s = ModulePrefs.state()
+        return if (s.enabled) s.active else null
     }
 
     // ---- AMap location hooks (resolved from host classloader) ----------------------------
@@ -46,120 +49,148 @@ object LocationSpoofer {
             return
         }
 
-        // AMapLocationClient#getLastKnownLocation() -> return a fully-built fake AMapLocation.
         runCatching {
             val m = clientCls.getMethod("getLastKnownLocation")
             HookBridge.hook(m) { call ->
-                if (!enabled()) return@hook
-                buildFakeLocation(cl)?.let {
+                val p = profile() ?: return@hook
+                buildFakeLocation(cl, p)?.let {
                     call.result = it
                     log("getLastKnownLocation() replaced")
                 }
             }
         }.onFailure { log("hook getLastKnownLocation failed: ${it.message}") }
 
-        // AMapLocationClient#setLocationListener(AMapLocationListener) -> wrap the listener so
-        // every pushed fix is rewritten to the target coordinate before the host sees it.
         runCatching {
             val listenerCls = cl.loadClass(Constants.CLS_AMAP_LISTENER)
             val m = clientCls.getMethod("setLocationListener", listenerCls)
             HookBridge.hook(m) { call ->
-                if (!enabled()) return@hook
+                if (profile() == null) return@hook
                 val original = call.args.getOrNull(0) ?: return@hook
-                val proxy = Proxy.newProxyInstance(
+                call.args[0] = Proxy.newProxyInstance(
                     cl, arrayOf(listenerCls), SpoofingListener(cl, original)
                 )
-                call.args[0] = proxy
-                // do not swallow: let the original setter run with our wrapped listener
                 log("setLocationListener() wrapped")
             }
         }.onFailure { log("hook setLocationListener failed: ${it.message}") }
     }
 
-    /** Rewrites lat/lng on each AMapLocation the SDK pushes, then delegates to the real listener. */
+    /** Rewrites every AMapLocation the SDK pushes, then delegates to the real listener. */
     private class SpoofingListener(
         private val cl: ClassLoader,
         private val delegate: Any
     ) : InvocationHandler {
         override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
             if (method.name == "onLocationChanged" && args != null && args.isNotEmpty()) {
-                (args[0] as? Location)?.let { applyTarget(it) }
+                val loc = args[0]
+                val p = profile()
+                if (loc is Location && p != null) applyAll(cl, loc, p, jitter = p.jitter)
             }
             return method.invoke(delegate, *(args ?: emptyArray()))
         }
     }
 
     /**
-     * Build a fresh host-typed AMapLocation carrying the target coordinate. AMapLocation extends
-     * android.location.Location, so provider/lat/lng/accuracy/time go through the Location API;
-     * AMap-specific fields (locationType, address) are set reflectively when present.
+     * Build a fresh host-typed AMapLocation carrying the full target profile. AMapLocation extends
+     * android.location.Location; base fields go through the Location API, AMap-only fields via the
+     * host class's own setters (reflected, best-effort — a missing setter never aborts the fix).
      */
-    private fun buildFakeLocation(cl: ClassLoader): Location? {
-        val target = target() ?: return null
-        return runCatching {
-            val cls = cl.loadClass(Constants.CLS_AMAP_LOCATION)
-            val loc = cls.getConstructor(String::class.java).newInstance("lbs") as Location
-            applyTarget(loc)
-            // AMapLocation.setLocationType(int): 1 == GPS-quality fix, most trusted by callers.
+    private fun buildFakeLocation(cl: ClassLoader, p: Profile): Location? = runCatching {
+        val cls = cl.loadClass(Constants.CLS_AMAP_LOCATION)
+        val loc = cls.getConstructor(String::class.java).newInstance("lbs") as Location
+        applyAll(cl, loc, p, jitter = false)
+        loc
+    }.getOrElse {
+        log("buildFakeLocation failed: ${it.message}")
+        null
+    }
+
+    /** Apply target coordinate + all AMap address fields onto a Location instance. */
+    private fun applyAll(cl: ClassLoader, loc: Location, p: Profile, jitter: Boolean) {
+        var lat = p.latitude
+        var lng = p.longitude
+        if (jitter) {
+            // ~0.1 m great-circle offset in a random direction, matching the original.
+            val u = Math.random()
+            val v = Math.random()
+            val dLat = Math.toDegrees(Constants.JITTER_RAD * (2 * u - 1))
+            val dLng = Math.toDegrees(
+                Math.asin(sin(Constants.JITTER_RAD) / cos(Math.toRadians(lat))) * (2 * v - 1)
+            )
+            lat += dLat
+            lng += dLng
+        }
+        loc.latitude = lat
+        loc.longitude = lng
+        loc.accuracy = p.accuracy
+        loc.altitude = p.altitude
+        loc.bearing = p.bearing
+        loc.speed = p.speed
+        loc.time = System.currentTimeMillis()
+        loc.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+
+        // AMap-only string/int fields — reflected on the host class, best-effort.
+        val setters = listOf(
+            "setAddress" to p.address, "setCountry" to p.country, "setProvince" to p.province,
+            "setCity" to p.city, "setCityCode" to p.cityCode, "setDistrict" to p.district,
+            "setAdCode" to p.adCode, "setStreet" to p.street, "setStreetNum" to p.streetNum,
+            "setPoiName" to p.poiName, "setAoiName" to p.aoiName, "setFloor" to p.floor,
+        )
+        for ((name, value) in setters) {
+            if (value.isEmpty()) continue
             runCatching {
-                cls.getMethod("setLocationType", Int::class.javaPrimitiveType).invoke(loc, 1)
+                loc.javaClass.getMethod(name, String::class.java).invoke(loc, value)
             }
-            loc
-        }.getOrElse {
-            log("buildFakeLocation failed: ${it.message}")
-            null
+        }
+        runCatching {
+            loc.javaClass.getMethod("setLocationType", Int::class.javaPrimitiveType)
+                .invoke(loc, p.locationType)
+        }
+        runCatching {
+            loc.javaClass.getMethod("setCoordType", String::class.java).invoke(loc, p.coordType)
+        }
+        // A real fix carries no error; force success so callers trust it.
+        runCatching {
+            loc.javaClass.getMethod("setErrorCode", Int::class.javaPrimitiveType).invoke(loc, 0)
         }
     }
 
-    /** Writes target lat/lng (+ optional accuracy/altitude) onto any Location instance. */
-    private fun applyTarget(loc: Location) {
-        val lat = prefDouble(Constants.K_LAT) ?: return
-        val lng = prefDouble(Constants.K_LNG) ?: return
-        loc.latitude = lat
-        loc.longitude = lng
-        loc.time = System.currentTimeMillis()
-        loc.elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
-        prefDouble(Constants.K_ACCURACY)?.let { loc.accuracy = it.toFloat() }
-            ?: run { loc.accuracy = 5f }
-        prefDouble(Constants.K_ALTITUDE)?.let { loc.altitude = it }
-    }
+    // ---- Consistent radio-environment replay (framework types only) ----------------------
 
-    // ---- Optional radio-environment masking (framework types only) -----------------------
-
-    private fun installEnvMask(cl: ClassLoader) {
+    private fun installEnvHooks() {
         runCatching {
             val wm = android.net.wifi.WifiManager::class.java
+            HookBridge.hook(wm.getMethod("isWifiEnabled")) { c ->
+                maskProfile()?.let { c.result = it.wifiEnabled }
+            }
             HookBridge.hook(wm.getMethod("getScanResults")) { c ->
-                if (enabled()) c.result = emptyList<android.net.wifi.ScanResult>()
+                maskProfile()?.let { p ->
+                    c.result = ParcelCodec.decodeList(p.scanResults, ScanResult.CREATOR)
+                }
             }
             HookBridge.hook(wm.getMethod("getConnectionInfo")) { c ->
-                if (enabled()) c.result = null
+                maskProfile()?.let { p ->
+                    c.result = ParcelCodec.decode(p.connectionInfo, WifiInfo.CREATOR)
+                }
             }
-        }.onFailure { log("wifi mask failed: ${it.message}") }
+        }.onFailure { log("wifi hooks failed: ${it.message}") }
 
         runCatching {
             val tm = android.telephony.TelephonyManager::class.java
             HookBridge.hook(tm.getMethod("getAllCellInfo")) { c ->
-                if (enabled()) c.result = emptyList<android.telephony.CellInfo>()
+                maskProfile()?.let { p ->
+                    c.result = ParcelCodec.decodeList(p.cellInfos, CellInfo.CREATOR)
+                }
             }
-        }.onFailure { log("cell mask failed: ${it.message}") }
+            runCatching {
+                HookBridge.hook(tm.getMethod("getNetworkOperator")) { c ->
+                    maskProfile()?.let { p -> if (p.operator.isNotEmpty()) c.result = p.operator }
+                }
+            }
+        }.onFailure { log("cell hooks failed: ${it.message}") }
     }
 
-    // ---- prefs helpers -------------------------------------------------------------------
-
-    private fun enabled() = prefBool(Constants.K_ENABLED, false)
-
-    private fun target(): Pair<Double, Double>? {
-        val lat = prefDouble(Constants.K_LAT) ?: return null
-        val lng = prefDouble(Constants.K_LNG) ?: return null
-        return lat to lng
-    }
-
-    private fun prefBool(key: String, def: Boolean): Boolean =
-        ModulePrefs.remote()?.getBoolean(key, def) ?: def
-
-    private fun prefDouble(key: String): Double? =
-        ModulePrefs.remote()?.getString(key, null)?.toDoubleOrNull()
+    /** The active profile only when env-masking is on; null otherwise (host sees real radio). */
+    private fun maskProfile(): Profile? = profile()?.takeIf { it.maskEnv }
 
     private fun log(msg: String) {
         runCatching { RimetMockModule.framework.log(Log.DEBUG, Constants.TAG, msg) }

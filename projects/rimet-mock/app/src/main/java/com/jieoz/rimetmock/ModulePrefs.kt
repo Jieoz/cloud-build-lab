@@ -5,24 +5,14 @@ import android.content.SharedPreferences
 import io.github.libxposed.api.XposedInterface
 
 /**
- * Settings written by the module app and read inside the host (DingTalk).
+ * The single config channel between the module app and the host (DingTalk).
  *
- * The app stores an ordinary private preference, then mirrors it into libxposed remote
- * preferences. The host reads that copy. There is no world-readable XML — the file LSPosed 2.2
- * warns about and 2.3 removes. This replaces the original module's XSharedPreferences +
- * ContentProvider fallback chain with the single libxposed remote-prefs channel.
+ * The app stores the whole [MockState] as one JSON string in an ordinary private preference and
+ * mirrors it into libxposed remote preferences on every commit/apply. The host reads that copy
+ * via [state]. There is no world-readable XML (the file LSPosed 2.2 warns about, 2.3 removes) and
+ * no ContentProvider fallback — one key, one channel.
  */
 object ModulePrefs {
-
-    private val KEYS = arrayOf(
-        Constants.K_ENABLED,
-        Constants.K_LAT,
-        Constants.K_LNG,
-        Constants.K_ACCURACY,
-        Constants.K_ALTITUDE,
-        Constants.K_MASK_ENV,
-        Constants.K_VERBOSE,
-    )
 
     @Volatile
     private var framework: XposedInterface? = null
@@ -31,32 +21,32 @@ object ModulePrefs {
         framework = base
     }
 
-    /** Host-side read handle. Null before the module is bound (i.e. outside a hooked process). */
-    fun remote(): SharedPreferences? = framework?.getRemotePreferences(Constants.PREFS)
+    private fun remote(): SharedPreferences? = framework?.getRemotePreferences(Constants.PREFS)
 
-    /** App-side handle: a normal private prefs that publishes to remote prefs on commit/apply. */
-    fun open(context: Context): SharedPreferences {
-        val local = context.applicationContext.getSharedPreferences(
-            Constants.PREFS, Context.MODE_PRIVATE
+    /** Host-side read: the current state, or an empty default before anything is saved. */
+    fun state(): MockState = MockState.fromJson(remote()?.getString(Constants.K_STATE, null))
+
+    /** App-side handle that publishes to remote prefs on commit/apply. */
+    fun open(context: Context): SharedPreferences =
+        PublishingPrefs(
+            context.applicationContext.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
         )
-        return PublishingPrefs(local)
+
+    /** App-side convenience: load + save the whole state. */
+    fun load(context: Context): MockState =
+        MockState.fromJson(
+            context.applicationContext
+                .getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+                .getString(Constants.K_STATE, null)
+        )
+
+    fun save(context: Context, state: MockState) {
+        open(context).edit().putString(Constants.K_STATE, state.toJson()).apply()
     }
 
     private fun publish(local: SharedPreferences) {
         val remote = remote() ?: return
-        val editor = remote.edit()
-        editor.clear()
-        for (key in KEYS) {
-            if (!local.contains(key)) continue
-            when (val value = local.all[key]) {
-                is Boolean -> editor.putBoolean(key, value)
-                is String -> editor.putString(key, value)
-                is Int -> editor.putInt(key, value)
-                is Long -> editor.putLong(key, value)
-                is Float -> editor.putFloat(key, value)
-            }
-        }
-        editor.apply()
+        remote.edit().putString(Constants.K_STATE, local.getString(Constants.K_STATE, null)).apply()
     }
 
     private class PublishingPrefs(private val local: SharedPreferences) :

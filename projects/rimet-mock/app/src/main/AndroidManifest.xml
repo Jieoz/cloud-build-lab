@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!-- So the module app can see the host package for scope resolution. -->
     <queries>
@@ -17,8 +20,8 @@
         android:theme="@style/Theme.RimetMock"
         android:description="@string/xposed_description">
 
-        <!-- No legacy xposed* meta-data: this is a pure libxposed API 102 module. Its identity
-             (entry class, minApiVersion, scope) lives in META-INF/xposed/. -->
+        <!-- No legacy xposed* meta-data: pure libxposed API 102 module. Identity (entry class,
+             minApiVersion, scope) lives in META-INF/xposed/. -->
 
         <activity
             android:name=".MainActivity"
@@ -28,6 +31,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".EditActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

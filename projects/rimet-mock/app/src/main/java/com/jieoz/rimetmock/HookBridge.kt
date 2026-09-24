@@ -6,7 +6,8 @@ import java.lang.reflect.Executable
 /**
  * Adapts before-hooks onto libxposed's interceptor chain.
  * Setting [Call.result] swallows the original call (matching the old XC_MethodHook.setResult),
- * so the hooked method returns our value and never runs its body.
+ * so the hooked method returns our value and never runs its body. Mutating [Call.args] and NOT
+ * setting a result lets the original run with our modified arguments.
  */
 internal object HookBridge {
 
@@ -35,8 +36,7 @@ internal object HookBridge {
         RimetMockModule.framework.hook(origin).intercept { chain ->
             val call = Call(chain)
             before.before(call)
-            if (call.swallowed) return@intercept call.result
-            call.proceed()
+            if (call.swallowed) call.result else call.proceed()
         }
     }
 }
