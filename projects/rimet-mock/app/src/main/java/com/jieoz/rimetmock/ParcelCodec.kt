@@ -46,4 +46,25 @@ object ParcelCodec {
 
     fun <T> decodeList(b64s: List<String>, creator: Parcelable.Creator<T>): List<T> =
         b64s.mapNotNull { decode(it, creator) }
+
+    /**
+     * Same as [decode] but resolves the class's CREATOR reflectively. Needed for framework types
+     * whose CREATOR field is hidden from the public SDK (e.g. WifiInfo.CREATOR), so it cannot be
+     * referenced by name at compile time.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T> decodeReflect(b64: String?, cls: Class<T>): T? {
+        val creator = creatorOf(cls) ?: return null
+        return decode(b64, creator) as T?
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> decodeListReflect(b64s: List<String>, cls: Class<T>): List<T> {
+        val creator = creatorOf(cls) ?: return emptyList()
+        return b64s.mapNotNull { decode(it, creator) as T? }
+    }
+
+    private fun creatorOf(cls: Class<*>): Parcelable.Creator<*>? = runCatching {
+        cls.getField("CREATOR").get(null) as? Parcelable.Creator<*>
+    }.getOrNull()
 }

@@ -169,7 +169,7 @@ object LocationSpoofer {
             }
             HookBridge.hook(wm.getMethod("getConnectionInfo")) { c ->
                 maskProfile()?.let { p ->
-                    c.result = ParcelCodec.decode(p.connectionInfo, WifiInfo.CREATOR)
+                    c.result = ParcelCodec.decodeReflect(p.connectionInfo, WifiInfo::class.java)
                 }
             }
         }.onFailure { log("wifi hooks failed: ${it.message}") }
