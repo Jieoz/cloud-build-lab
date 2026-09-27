@@ -30,10 +30,8 @@ class PixelifyModule : XposedModule() {
                 HookBridge.Before { call ->
                     val app = call.chainThis as? Application ?: return@Before
                     DebugLog.bind(app)
-                    val on = ModulePrefs.remote()?.getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false) ?: false
                     DebugLog.setEnabled(true)
-                    DebugLog.line("application onCreate ${param.packageName} verbose=$on")
-                    DebugLog.setEnabled(on)
+                    DebugLog.line("application onCreate ${param.packageName}")
                 }
             )
         }.onFailure {
