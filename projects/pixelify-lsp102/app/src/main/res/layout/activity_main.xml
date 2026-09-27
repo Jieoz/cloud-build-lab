@@ -184,7 +184,7 @@
             android:id="@+id/advanced_options"
             />
 
-        <Switch
+        <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/diag_log_switch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
