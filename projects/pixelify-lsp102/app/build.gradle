@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace "balti.xposed.pixelifygooglephotos.lsp102"
-    compileSdk 37
+    compileSdk 35
 
     defaultConfig {
         applicationId "balti.xposed.pixelifygooglephotos.lsp102"
@@ -67,7 +67,8 @@ dependencies {
 
     // Provided by LSPosed 2.2+ at runtime. Packaging it collides with the framework copy.
     compileOnly 'io.github.libxposed:api:102.0.0'
-    implementation 'io.github.libxposed:service:102.0.0'
+    implementation files('libs/libxposed-service-102.0.0.aar')
+    implementation files('libs/libxposed-interface-102.0.0.aar')
 
     testImplementation 'junit:junit:4.13.2'
 }
