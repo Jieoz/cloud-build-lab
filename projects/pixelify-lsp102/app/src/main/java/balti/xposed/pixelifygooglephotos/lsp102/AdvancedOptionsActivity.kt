@@ -6,7 +6,6 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import balti.xposed.pixelifygooglephotos.lsp102.Constants.PREF_DEVICE_TO_SPOOF
-import balti.xposed.pixelifygooglephotos.lsp102.Constants.PREF_ENABLE_VERBOSE_LOGS
 import balti.xposed.pixelifygooglephotos.lsp102.Constants.PREF_SPOOF_ANDROID_VERSION_FOLLOW_DEVICE
 import balti.xposed.pixelifygooglephotos.lsp102.Constants.PREF_SPOOF_ANDROID_VERSION_MANUAL
 
@@ -16,7 +15,6 @@ class AdvancedOptionsActivity: AppCompatActivity(R.layout.advanced_options_activ
         ModulePrefs.open(this)
     }
 
-    private val verboseLogging by lazy { findViewById<CheckBox>(R.id.verbose_logging) }
     private val deviceNameLabel by lazy { findViewById<TextView>(R.id.device_name_label) }
     private val androidVersionRadioGroup by lazy { findViewById<RadioGroup>(R.id.android_version_radio_group) }
     private val deviceAndroidVersion by lazy { findViewById<TextView>(R.id.device_android_version) }
@@ -25,8 +23,6 @@ class AdvancedOptionsActivity: AppCompatActivity(R.layout.advanced_options_activ
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        verboseLogging.isChecked = pref.getBoolean(PREF_ENABLE_VERBOSE_LOGS, false)
 
         /**
          * Get the current spoofing device an its android version.
@@ -89,9 +85,6 @@ class AdvancedOptionsActivity: AppCompatActivity(R.layout.advanced_options_activ
      */
     private fun savePreferences(){
         pref?.edit()?.run {
-
-            /** Option for verbose log. */
-            putBoolean(PREF_ENABLE_VERBOSE_LOGS, verboseLogging.isChecked)
 
             when(androidVersionRadioGroup.checkedRadioButtonId){
 

@@ -211,6 +211,23 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
             }
         }
 
+        findViewById<SwitchCompat>(R.id.diag_log_switch).apply {
+            isChecked = pref?.getBoolean(PREF_ENABLE_VERBOSE_LOGS, false) ?: false
+            setOnCheckedChangeListener { _, checked ->
+                pref?.edit()?.run {
+                    putBoolean(PREF_ENABLE_VERBOSE_LOGS, checked)
+                    apply()
+                }
+                val path = "Download/PixelifyLsp102/pixelify-lsp102-日期-随机串.txt"
+                Toast.makeText(
+                    this@ActivityMain,
+                    if (checked) "已开启 · $path" else "已关闭诊断日志",
+                    Toast.LENGTH_SHORT
+                ).show()
+                showRebootSnack()
+            }
+        }
+
         /**
          * See [Utils.forceStopPackage].
          */
