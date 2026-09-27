@@ -78,7 +78,7 @@ object ModulePrefs {
         private val local: SharedPreferences
     ) : SharedPreferences.Editor by editor {
         override fun apply() {
-            editor.apply()
+            editor.commit()
             publish(local)
         }
 
