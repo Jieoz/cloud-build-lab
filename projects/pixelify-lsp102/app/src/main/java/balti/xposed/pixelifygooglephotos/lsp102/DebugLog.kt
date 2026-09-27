@@ -33,11 +33,16 @@ object DebugLog {
     @Volatile
     private var enabled: Boolean = true
 
+    /** Lines written before the host Context exists. install() runs before Application.onCreate. */
+    private val pending = ArrayDeque<String>()
+
     fun fileName(now: Date = Date()): String =
         "pixelify-lsp102-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}-$sessionSuffix$EXT"
 
     fun bind(context: Context) {
         host = context.applicationContext ?: context
+        val queued = synchronized(pending) { List(pending.size) { pending.removeFirst() } }
+        queued.forEach { write(it) }
     }
 
     fun setEnabled(value: Boolean) {
@@ -50,6 +55,14 @@ object DebugLog {
         val row = "$stamp pid=${Process.myPid()} $message\n"
         Log.i(TAG, message)
         runCatching { PixelifyModule.framework.log(Log.INFO, TAG, message) }
+        if (host == null) {
+            synchronized(pending) { pending.addLast(row) }
+            return
+        }
+        write(row)
+    }
+
+    private fun write(row: String) {
         val context = host ?: return
         if (Build.VERSION.SDK_INT >= 29 && appendMediaStore(context, row)) return
         appendFile(row)
