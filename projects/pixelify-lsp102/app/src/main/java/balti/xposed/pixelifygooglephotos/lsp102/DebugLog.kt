@@ -13,17 +13,19 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
- * File log the user can share back.
+ * Same sink as X Video Catcher: the hooked app writes the file itself.
  *
- * The hook runs inside Google Photos and writes Download/PixelifyLsp102/.
- * The module UI reads that same public file and shares a copy.
+ * Photos cannot resolve a ContentProvider owned by this module, so the host process writes
+ * Download/PixelifyLsp102/. The name is the date plus a random suffix chosen once per process.
  */
 object DebugLog {
     const val TAG = "PixelifyLsp102"
     const val DIR_NAME = "PixelifyLsp102"
-    const val FILE_NAME = "pixelify-lsp102-debug.log"
+    private const val EXT = ".txt"
+    private val sessionSuffix: String = UUID.randomUUID().toString().substring(0, 6)
 
     @Volatile
     private var host: Context? = null
@@ -31,8 +33,11 @@ object DebugLog {
     @Volatile
     private var enabled: Boolean = true
 
+    fun fileName(now: Date = Date()): String =
+        "pixelify-lsp102-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}-$sessionSuffix$EXT"
+
     fun bind(context: Context) {
-        host = context.applicationContext
+        host = context.applicationContext ?: context
     }
 
     fun setEnabled(value: Boolean) {
@@ -45,64 +50,84 @@ object DebugLog {
         val row = "$stamp pid=${Process.myPid()} $message\n"
         Log.i(TAG, message)
         runCatching { PixelifyModule.framework.log(Log.INFO, TAG, message) }
-        val context = host
-        if (context != null && Build.VERSION.SDK_INT >= 29) {
-            appendMediaStore(context, row)
-        } else {
-            appendFile(row)
-        }
+        val context = host ?: return
+        if (Build.VERSION.SDK_INT >= 29 && appendMediaStore(context, row)) return
+        appendFile(row)
+        appendAppExternal(context, row)
     }
 
     fun read(context: Context): String {
-        if (Build.VERSION.SDK_INT >= 29) {
-            val uri = find(context) ?: return ""
-            return runCatching {
+        val uri = newest(context)
+        if (uri != null) {
+            val text = runCatching {
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
             }.getOrDefault("")
+            if (text.isNotBlank()) return text
         }
-        val target = publicFile()
-        if (!target.exists()) return ""
-        return runCatching { target.readText() }.getOrDefault("")
+        return readDirect()
     }
 
-    fun clear(context: Context) {
-        if (Build.VERSION.SDK_INT >= 29) {
-            find(context)?.let { context.contentResolver.delete(it, null, null) }
-        } else {
-            runCatching { publicFile().delete() }
+    private fun readDirect(): String {
+        val dir = File(publicDir(), DIR_NAME)
+        val latest = dir.listFiles { f -> f.name.startsWith("pixelify-lsp102-") && f.name.endsWith(EXT) }
+            ?.maxByOrNull { it.lastModified() } ?: return ""
+        return runCatching { latest.readText() }.getOrDefault("")
+    }
+
+    private fun appendAppExternal(context: Context, row: String) {
+        runCatching {
+            val base = context.getExternalFilesDir(null) ?: return
+            val dir = File(base, DIR_NAME)
+            dir.mkdirs()
+            File(dir, fileName()).appendText(row)
         }
     }
 
-    private fun publicFile(): File =
-        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "$DIR_NAME/$FILE_NAME")
+    private fun publicDir(): File =
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
     private fun appendFile(row: String) {
         runCatching {
-            val target = publicFile()
-            target.parentFile?.mkdirs()
-            target.appendText(row)
+            val dir = File(publicDir(), DIR_NAME)
+            dir.mkdirs()
+            File(dir, fileName()).appendText(row)
         }
     }
 
-    private fun appendMediaStore(context: Context, row: String) {
-        runCatching {
-            val resolver = context.contentResolver
-            val uri = find(context) ?: resolver.insert(collection(), ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME)
-                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath())
-            }) ?: return
-            resolver.openOutputStream(uri, "wa")?.use { it.write(row.toByteArray()) }
-        }
+    private fun appendMediaStore(context: Context, row: String): Boolean = runCatching {
+        val resolver = context.contentResolver
+        val name = fileName()
+        val uri = find(context, name) ?: resolver.insert(collection(), ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath())
+        }) ?: return false
+        resolver.openOutputStream(uri, "wa")?.use { it.write(row.toByteArray()) } != null
+    }.getOrDefault(false)
+
+    private fun newest(context: Context): Uri? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val collection = collection()
+        return runCatching {
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+                arrayOf(relativePath(), "pixelify-lsp102-%$EXT"),
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+            }
+        }.getOrNull()
     }
 
-    private fun find(context: Context): Uri? {
+    private fun find(context: Context, name: String): Uri? {
         val collection = collection()
         return context.contentResolver.query(
             collection,
             arrayOf(MediaStore.MediaColumns._ID),
             "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
-            arrayOf(relativePath(), FILE_NAME),
+            arrayOf(relativePath(), name),
             null
         )?.use { cursor ->
             if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null

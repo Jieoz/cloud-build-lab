@@ -96,7 +96,7 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
             Toast.makeText(this, R.string.debug_log_empty, Toast.LENGTH_LONG).show()
             return
         }
-        val out = File(cacheDir, DebugLog.FILE_NAME)
+        val out = File(cacheDir, "pixelify-lsp102-debug.txt")
         out.writeText(text)
         val uri = FileProvider.getUriForFile(this, applicationId(), out)
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
