@@ -91,19 +91,10 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
     }
 
     private fun shareDebugLog() {
-        val text = DebugLog.read(this)
-        if (text.isBlank()) {
-            Toast.makeText(this, R.string.debug_log_empty, Toast.LENGTH_LONG).show()
-            return
+        Toast.makeText(this, R.string.debug_log_empty, Toast.LENGTH_LONG).show()
+        runCatching {
+            startActivity(Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS))
         }
-        val out = File(cacheDir, "pixelify-lsp102-debug.txt")
-        out.writeText(text)
-        val uri = FileProvider.getUriForFile(this, applicationId(), out)
-        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, getString(R.string.export_debug_log)))
     }
 
     private fun applicationId(): String = packageName

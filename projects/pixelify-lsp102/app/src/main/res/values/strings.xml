@@ -71,9 +71,9 @@
 
     <!--advanced_options_activity.xml-->
     <string name="enable_verbose_logging">记录调试日志</string>
-    <string name="enable_verbose_logging_desc">打开后，模块在 Google Photos 里的挂载和伪装记录会写到 Download/PixelifyLsp102/pixelify-lsp102-debug.log。打开后需要强制停止 Google Photos 再进一次。用主界面的「导出调试日志」发给我。</string>
-    <string name="export_debug_log">导出调试日志</string>
-    <string name="debug_log_empty">还没有日志。先打开详细日志，强制停止 Google Photos，再打开相册操作一次。</string>
+    <string name="enable_verbose_logging_desc">打开后，模块在 Google Photos 里的挂载和伪装记录会写到 Download/PixelifyLsp102/pixelify-lsp102-日期-随机串.txt。打开后强制停止 Google Photos 再进一次。到系统的下载目录里把这个 txt 发给我，模块界面读不到相册写出的文件。</string>
+    <string name="export_debug_log">打开下载目录</string>
+    <string name="debug_log_empty">日志不在这里。打开系统的「下载」应用，进 PixelifyLsp102 文件夹，把 pixelify-lsp102-日期-随机串.txt 发给我。</string>
     <string name="spoof_android_version">Spoof android version.</string>
     <string name="spoof_android_version_desc">Do not set an Android version greater than your current version.\n
         Example, if your Android version is <b>Pie</b>, you can set <b>Nougat / Oreo / Pie</b>, but not Q / R / S.
