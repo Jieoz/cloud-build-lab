@@ -31,19 +31,7 @@ object DebugLog {
     private var host: Context? = null
 
     @Volatile
-    private var enabled: Boolean = true
-
-    /** Lines written before the host Context exists. install() runs before Application.onCreate. */
-    private val pending = ArrayDeque<String>()
-
-    fun fileName(now: Date = Date()): String =
-        "pixelify-lsp102-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}-$sessionSuffix$EXT"
-
-    fun bind(context: Context) {
-        host = context.applicationContext ?: context
-        val queued = synchronized(pending) { List(pending.size) { pending.removeFirst() } }
-        queued.forEach { write(it) }
-    }
+    private var enabled: Boolean = false
 
     fun setEnabled(value: Boolean) {
         enabled = value

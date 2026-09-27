@@ -30,13 +30,15 @@ class PixelifyModule : XposedModule() {
                 HookBridge.Before { call ->
                     val app = call.chainThis as? Application ?: return@Before
                     DebugLog.bind(app)
-                    DebugLog.setEnabled(true)
                     DebugLog.line("application onCreate ${param.packageName}")
                 }
             )
         }.onFailure {
             DebugLog.line("bind log failed ${it.javaClass.simpleName}: ${it.message}")
         }
+        DebugLog.setEnabled(
+            ModulePrefs.remote()?.getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false) ?: false
+        )
         DebugLog.line("package ready ${param.packageName}")
         FeatureSpoofer.install(param)
         DeviceSpoofer.install(param)
