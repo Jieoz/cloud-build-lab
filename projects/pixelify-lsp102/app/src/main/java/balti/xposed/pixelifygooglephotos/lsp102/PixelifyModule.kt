@@ -37,8 +37,7 @@ class PixelifyModule : XposedModule() {
             DebugLog.line("bind log failed ${it.javaClass.simpleName}: ${it.message}")
         }
         val logOn = try {
-            framework.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
-                .getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false)
+            ModulePrefs.remote()?.getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false) ?: false
         } catch (t: Throwable) {
             DebugLog.line("log switch read failed ${t.javaClass.simpleName}: ${t.message}", always = true)
             false
