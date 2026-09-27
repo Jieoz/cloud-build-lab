@@ -83,7 +83,7 @@ jobs:
           printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
           printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
           SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
-          test "$SCOPE" = "com.google.android.apps.photos"
+          test "$SCOPE" = "com.google.android.apps.photosbalti.xposed.pixelifygooglephotos.lsp102"
           if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
             echo "::error::legacy assets/xposed_init survived packaging"; exit 1
           fi
