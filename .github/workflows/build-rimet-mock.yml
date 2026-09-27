@@ -111,7 +111,7 @@ jobs:
           ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
           EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
           echo "signer=$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED" || {{ echo "::error::not the fixed key ($ACTUAL)"; exit 1; }}
+          test "$ACTUAL" = "$EXPECTED" || { echo "::error::not the fixed key ($ACTUAL)"; exit 1; }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
