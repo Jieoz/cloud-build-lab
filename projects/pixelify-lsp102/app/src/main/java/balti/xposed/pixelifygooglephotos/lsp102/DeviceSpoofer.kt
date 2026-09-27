@@ -28,8 +28,7 @@ class DeviceSpoofer {
      * Simple message to log messages in lsposed log as well as android log.
      */
     private fun log(message: String){
-        PixelifyModule.framework.log(Log.DEBUG, "PixelifyGooglePhotos", message)
-        Log.d("PixelifyGooglePhotos", message)
+        DebugLog.line("device $message")
     }
 
     /**

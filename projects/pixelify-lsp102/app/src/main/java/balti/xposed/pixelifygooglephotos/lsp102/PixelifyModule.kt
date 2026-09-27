@@ -1,5 +1,6 @@
 package balti.xposed.pixelifygooglephotos.lsp102
 
+import android.app.Application
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
@@ -23,6 +24,22 @@ class PixelifyModule : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         if (!param.isFirstPackage) return
+        runCatching {
+            HookBridge.hook(
+                Application::class.java.getDeclaredMethod("onCreate"),
+                HookBridge.Before { call ->
+                    val app = call.chainThis as? Application ?: return@Before
+                    DebugLog.bind(app)
+                    val on = ModulePrefs.remote()?.getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false) ?: false
+                    DebugLog.setEnabled(true)
+                    DebugLog.line("application onCreate ${param.packageName} verbose=$on")
+                    DebugLog.setEnabled(on)
+                }
+            )
+        }.onFailure {
+            DebugLog.line("bind log failed ${it.javaClass.simpleName}: ${it.message}")
+        }
+        DebugLog.line("package ready ${param.packageName}")
         FeatureSpoofer.install(param)
         DeviceSpoofer.install(param)
     }

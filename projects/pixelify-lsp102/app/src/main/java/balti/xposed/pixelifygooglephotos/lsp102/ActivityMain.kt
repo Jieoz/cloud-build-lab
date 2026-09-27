@@ -90,6 +90,24 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
         startActivity(intent)
     }
 
+    private fun shareDebugLog() {
+        val text = DebugLog.read(this)
+        if (text.isBlank()) {
+            Toast.makeText(this, R.string.debug_log_empty, Toast.LENGTH_LONG).show()
+            return
+        }
+        val out = File(cacheDir, DebugLog.FILE_NAME)
+        out.writeText(text)
+        val uri = FileProvider.getUriForFile(this, applicationId(), out)
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, getString(R.string.export_debug_log)))
+    }
+
+    private fun applicationId(): String = packageName
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -109,6 +127,7 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
         val updateAvailableLink = findViewById<TextView>(R.id.update_available_link)
         val confExport = findViewById<ImageButton>(R.id.conf_export)
         val confImport = findViewById<ImageButton>(R.id.conf_import)
+        findViewById<Button>(R.id.export_debug_log).setOnClickListener { shareDebugLog() }
 
         /**
          * Set default spoof device to [DeviceProps.defaultDeviceName].
