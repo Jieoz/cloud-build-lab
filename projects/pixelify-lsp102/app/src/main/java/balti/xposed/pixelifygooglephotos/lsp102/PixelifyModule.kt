@@ -36,16 +36,15 @@ class PixelifyModule : XposedModule() {
         }.onFailure {
             DebugLog.line("bind log failed ${it.javaClass.simpleName}: ${it.message}")
         }
-        DebugLog.setEnabled(
-            try {
-                framework.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
-                    .getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false)
-            } catch (t: Throwable) {
-                DebugLog.line("log switch read failed ${t.javaClass.simpleName}: ${t.message}", always = true)
-                false
-            }
-        )
-        DebugLog.line("package ready ${param.packageName}")
+        val logOn = try {
+            framework.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
+                .getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false)
+        } catch (t: Throwable) {
+            DebugLog.line("log switch read failed ${t.javaClass.simpleName}: ${t.message}", always = true)
+            false
+        }
+        DebugLog.setEnabled(logOn)
+        DebugLog.line("package ready ${param.packageName} logSwitch=$logOn", always = true)
         FeatureSpoofer.install(param)
         DeviceSpoofer.install(param)
     }
