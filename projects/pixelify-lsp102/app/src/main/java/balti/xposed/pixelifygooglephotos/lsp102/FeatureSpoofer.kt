@@ -158,23 +158,25 @@ class FeatureSpoofer {
 
         log("Loaded FeatureSpoofer for ${param.packageName}")
 
-        val classLoader = param.classLoader ?: return
-        val manager = HookBridge.findClass(CLASS_APPLICATION_MANAGER, classLoader)
-
-        /**
-         * Hook hasSystemFeature(String).
-         */
-        HookBridge.hook(
-            manager.getDeclaredMethod(METHOD_HAS_SYSTEM_FEATURE, String::class.java),
-            HookBridge.Before { call -> spoofFeatureEnquiryResultIfNeeded(call) }
-        )
-
-        /**
-         * Hook hasSystemFeature(String, int).
-         */
-        HookBridge.hook(
-            manager.getDeclaredMethod(METHOD_HAS_SYSTEM_FEATURE, String::class.java, Int::class.javaPrimitiveType),
-            HookBridge.Before { call -> spoofFeatureEnquiryResultIfNeeded(call) }
-        )
+        runCatching {
+            val classLoader = param.classLoader ?: return
+            val manager = HookBridge.findClass(CLASS_APPLICATION_MANAGER, classLoader)
+    
+            /**
+             * Hook hasSystemFeature(String).
+             */
+            HookBridge.hook(
+                manager.getDeclaredMethod(METHOD_HAS_SYSTEM_FEATURE, String::class.java),
+                HookBridge.Before { call -> spoofFeatureEnquiryResultIfNeeded(call) }
+            )
+    
+            /**
+             * Hook hasSystemFeature(String, int).
+             */
+            HookBridge.hook(
+                manager.getDeclaredMethod(METHOD_HAS_SYSTEM_FEATURE, String::class.java, Int::class.javaPrimitiveType),
+                HookBridge.Before { call -> spoofFeatureEnquiryResultIfNeeded(call) }
+            )
+        }.onFailure { DebugLog.line("install failed ${it.javaClass.simpleName}: ${it.message}") }
     }
 }

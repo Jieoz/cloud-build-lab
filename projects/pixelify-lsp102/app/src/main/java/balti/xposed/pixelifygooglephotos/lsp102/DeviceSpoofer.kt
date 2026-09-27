@@ -83,32 +83,34 @@ class DeviceSpoofer {
             param.packageName != PACKAGE_NAME_GOOGLE_PHOTOS) return
 
         log("Loaded DeviceSpoofer for ${param.packageName}")
-        log("Device spoof: ${finalDeviceToSpoof?.deviceName}")
 
-        finalDeviceToSpoof?.props?.run {
-
-            if (keys.isEmpty()) return
-            val classLoader = param.classLoader ?: return
-
-            val classBuild = HookBridge.findClass("android.os.Build", classLoader)
-            keys.forEach {
-                HookBridge.setStaticObject(classBuild, it, this[it])
-                if (verboseLog) log("DEVICE PROPS: $it - ${this[it]}")
+        runCatching {
+            log("Device spoof: ${finalDeviceToSpoof?.deviceName}")
+    
+            finalDeviceToSpoof?.props?.run {
+    
+                if (keys.isEmpty()) return
+                val classLoader = param.classLoader ?: return
+    
+                val classBuild = HookBridge.findClass("android.os.Build", classLoader)
+                keys.forEach {
+                    HookBridge.setStaticObject(classBuild, it, this[it])
+                    if (verboseLog) log("DEVICE PROPS: $it - ${this[it]}")
+                }
+    
             }
-
-        }
-
-        androidVersionToSpoof?.getAsMap()?.run {
-
-            val classLoader = param.classLoader ?: return
-            val classBuild = HookBridge.findClass("android.os.Build.VERSION", classLoader)
-
-            keys.forEach {
-                HookBridge.setStaticObject(classBuild, it, this[it])
-                if (verboseLog) log("VERSION SPOOF: $it - ${this[it]}")
+    
+            androidVersionToSpoof?.getAsMap()?.run {
+    
+                val classLoader = param.classLoader ?: return
+                val classBuild = HookBridge.findClass("android.os.Build.VERSION", classLoader)
+    
+                keys.forEach {
+                    HookBridge.setStaticObject(classBuild, it, this[it])
+                    if (verboseLog) log("VERSION SPOOF: $it - ${this[it]}")
+                }
             }
-        }
-
+        }.onFailure { DebugLog.line("install failed ${it.javaClass.simpleName}: ${it.message}") }
     }
 
 }
