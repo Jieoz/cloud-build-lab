@@ -48,8 +48,8 @@ object DebugLog {
         enabled = value
     }
 
-    fun line(message: String) {
-        if (!enabled) return
+    fun line(message: String, always: Boolean = false) {
+        if (!enabled && !always) return
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
         val row = "$stamp pid=${Process.myPid()} $message\n"
         Log.i(TAG, message)

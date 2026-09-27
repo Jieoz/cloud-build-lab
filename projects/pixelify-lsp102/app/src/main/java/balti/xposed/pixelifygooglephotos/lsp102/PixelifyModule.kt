@@ -30,7 +30,7 @@ class PixelifyModule : XposedModule() {
                 HookBridge.Before { call ->
                     val app = call.chainThis as? Application ?: return@Before
                     DebugLog.bind(app)
-                    DebugLog.line("application onCreate ${param.packageName}")
+                    DebugLog.line("application onCreate ${param.packageName}", always = true)
                 }
             )
         }.onFailure {
