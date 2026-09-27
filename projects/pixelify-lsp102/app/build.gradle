@@ -67,7 +67,7 @@ dependencies {
 
     // Provided by LSPosed 2.2+ at runtime. Packaging it collides with the framework copy.
     compileOnly 'io.github.libxposed:api:102.0.0'
-    implementation 'io.github.libxposed:service:102.0.0'
+    implementation 'io.github.libxposed:service:101.0.0'
 
     testImplementation 'junit:junit:4.13.2'
 }
