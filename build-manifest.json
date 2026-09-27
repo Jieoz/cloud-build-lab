@@ -38,6 +38,14 @@
       "artifactName": "rimet-mock-debug-apk",
       "deliveryType": "apk",
       "releaseAssetPattern": "*.apk"
+    },
+    "pixelify-lsp102": {
+      "kind": "android-apk",
+      "sourcePath": "projects/pixelify-lsp102",
+      "workflow": "build-pixelify-lsp102.yml",
+      "artifactName": "pixelify-lsp102-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
     }
   }
 }
