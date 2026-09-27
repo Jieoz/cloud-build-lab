@@ -52,7 +52,23 @@ jobs:
           test -f build.gradle.kts || test -f build.gradle
           test -f app/build.gradle.kts || test -f app/build.gradle
 
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.XVC_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::keystore secret missing; refusing an un-upgradable APK"; exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+
       - name: Build debug APK
+        env:
+          PGP_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          PGP_KEYSTORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
+          PGP_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
+          PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
         run: gradle --no-daemon assembleDebug
 
       - name: Verify libxposed module contract in APK
@@ -87,13 +103,15 @@ jobs:
           fi
           echo "libxposed contract OK: $ENTRY minApiVersion=102 scope=$SCOPE (no AMap SDK, no api bundle)"
 
-      - name: Record signer
+      - name: Verify APK signature is the fixed key
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify --print-certs "$APK" | tee /tmp/signer.txt
-          grep -m1 -i 'certificate SHA-256 digest' /tmp/signer.txt
+          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
+          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
+          echo "signer=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED" || {{ echo "::error::not the fixed key ($ACTUAL)"; exit 1; }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

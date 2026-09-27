@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val keystorePath = System.getenv("MOTO_KEYSTORE_PATH")
+val keystorePass = System.getenv("MOTO_KEYSTORE_PASSWORD")
+val hasFixedKey = !keystorePath.isNullOrBlank() && file(keystorePath).exists() && !keystorePass.isNullOrBlank()
+
 android {
     namespace = "com.jiesa.motochargeboost"
     compileSdk = 35
@@ -17,8 +21,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasFixedKey) {
+            create("fixed") {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePass
+                keyAlias = System.getenv("MOTO_KEY_ALIAS") ?: "xvc"
+                keyPassword = System.getenv("MOTO_KEY_PASSWORD") ?: keystorePass
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
+            if (hasFixedKey) signingConfig = signingConfigs.getByName("fixed")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
