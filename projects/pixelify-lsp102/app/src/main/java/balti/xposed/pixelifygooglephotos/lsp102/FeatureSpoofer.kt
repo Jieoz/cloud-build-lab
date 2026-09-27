@@ -136,14 +136,14 @@ class FeatureSpoofer {
 
         if (passFeatureTrue) {
             param.result = true
-            if (verboseLog) log("TRUE - feature args: $arguments")
+            log("TRUE - feature args: $arguments")
         }
         else if (passFeatureFalse) {
             param.result = false
-            if (verboseLog) log("FALSE - feature args: $arguments")
+            log("FALSE - feature args: $arguments")
         }
         else {
-            if (verboseLog) log("NO_CHANGE - feature args: $arguments")
+            log("NO_CHANGE - feature args: $arguments")
         }
     }
 

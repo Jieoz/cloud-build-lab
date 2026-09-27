@@ -11,8 +11,8 @@ android {
         applicationId "balti.xposed.pixelifygooglephotos.lsp102"
         minSdk 21
         targetSdk 35
-        versionCode 12
-        versionName "4.2-lsp102-test8"
+        versionCode 13
+        versionName "4.2-lsp102-test9"
     }
 
     buildFeatures {

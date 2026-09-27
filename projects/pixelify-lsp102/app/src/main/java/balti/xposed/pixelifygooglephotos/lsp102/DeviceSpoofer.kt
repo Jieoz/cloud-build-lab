@@ -95,7 +95,7 @@ class DeviceSpoofer {
                 val classBuild = HookBridge.findClass("android.os.Build", classLoader)
                 keys.forEach {
                     HookBridge.setStaticObject(classBuild, it, this[it])
-                    if (verboseLog) log("DEVICE PROPS: $it - ${this[it]}")
+                    log("DEVICE PROPS: $it - ${this[it]}")
                 }
     
             }
@@ -107,7 +107,7 @@ class DeviceSpoofer {
     
                 keys.forEach {
                     HookBridge.setStaticObject(classBuild, it, this[it])
-                    if (verboseLog) log("VERSION SPOOF: $it - ${this[it]}")
+                    log("VERSION SPOOF: $it - ${this[it]}")
                 }
             }
         }.onFailure { DebugLog.line("install failed ${it.javaClass.simpleName}: ${it.message}") }
