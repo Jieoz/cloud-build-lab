@@ -45,7 +45,11 @@ object ModulePrefs {
     }
 
     fun publish(local: SharedPreferences) {
-        val remote = remote() ?: return
+        val remote = try {
+            PixelifyModule.framework.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
+        } catch (t: Throwable) {
+            null
+        } ?: return
         val editor = remote.edit()
         editor.clear()
         for (key in KEYS) {
