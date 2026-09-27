@@ -44,7 +44,14 @@ object ModulePrefs {
         return base.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
     }
 
+    /** Tests replace this. Production copies into the remote preferences published at load. */
+    internal var remoteWriter: ((SharedPreferences) -> Unit)? = { local -> copyToRemote(local) }
+
     fun publish(local: SharedPreferences) {
+        runCatching { remoteWriter?.invoke(local) }
+    }
+
+    private fun copyToRemote(local: SharedPreferences) {
         val remote = remote() ?: return
         val editor = remote.edit()
         editor.clear()

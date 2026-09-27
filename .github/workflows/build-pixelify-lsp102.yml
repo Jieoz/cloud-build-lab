@@ -69,7 +69,7 @@ jobs:
           PGP_KEYSTORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
           PGP_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
           PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
 
       - name: Verify libxposed module contract in APK
         run: |
