@@ -8,18 +8,22 @@ import java.io.FileDescriptor
 import java.nio.ByteBuffer
 
 /**
- * Trims [startUs, endUs] out of an audio source and writes an .m4a (AAC) file.
+ * Trims [startUs, endUs] out of an audio source and writes an .m4a file.
  *
- * Decodes the source with the platform decoder and re-encodes to AAC, so it
- * works for any format the device can decode (mp3 / m4a / aac / wav / ogg ...),
- * always producing a portable .m4a. One code path, no per-format branching.
+ * Two engines, picked automatically:
  *
- * The loop is a single non-blocking state machine that ALWAYS drains the
- * encoder output every iteration. The previous version fed all decoded PCM
- * into the encoder input buffers in a tight inner loop WITHOUT draining the
- * encoder output; once the input pool filled, dequeueInputBuffer spun on -1
- * forever and the export hung with the progress bar frozen. A codec must never
- * be fed without being drained in the same loop.
+ *  1. REMUX (stream copy) — the fast path. Copies the already-compressed audio
+ *     frames straight into a new MP4 container without decoding or re-encoding,
+ *     the equivalent of `ffmpeg -c copy`. Near-instant and lossless. Used when
+ *     the source is AAC (the only codec MediaMuxer can reliably mux into MP4),
+ *     which covers most phone recordings and shared .m4a/.mp4 audio.
+ *     Audio frames are all independently decodable, so cutting to the nearest
+ *     frame is effectively sample-accurate (no keyframe problem like video).
+ *
+ *  2. TRANSCODE (decode -> PCM -> AAC) — the fallback. Only used for formats
+ *     MediaMuxer cannot stream-copy (mp3 / wav / ogg / flac ...). This re-renders
+ *     the audio and is therefore roughly real-time and slightly lossy, but it
+ *     guarantees a playable .m4a for any decodable input.
  */
 object AudioTrimmer {
 
@@ -45,6 +49,91 @@ object AudioTrimmer {
     ) {
         require(endUs > startUs) { "结束时间必须晚于开始时间" }
 
+        // Peek at the source codec to choose the engine.
+        val probe = MediaExtractor()
+        val mime: String
+        try {
+            probe.setDataSource(input)
+            val t = firstAudioTrack(probe)
+            require(t >= 0) { "文件里没有音频轨道" }
+            mime = probe.getTrackFormat(t).getString(MediaFormat.KEY_MIME)
+                ?: throw IllegalStateException("无法识别音频编码")
+        } finally {
+            runCatching { probe.release() }
+        }
+
+        val muxable = mime.equals(MediaFormat.MIMETYPE_AUDIO_AAC, ignoreCase = true)
+        if (muxable) {
+            remux(input, output, startUs, endUs, progress)
+        } else {
+            transcode(input, output, startUs, endUs, progress)
+        }
+    }
+
+    /** Fast path: copy compressed AAC frames straight into a new MP4, no re-encode. */
+    private fun remux(
+        input: FileDescriptor,
+        output: FileDescriptor,
+        startUs: Long,
+        endUs: Long,
+        progress: Progress?,
+    ) {
+        val extractor = MediaExtractor()
+        var muxer: MediaMuxer? = null
+        try {
+            extractor.setDataSource(input)
+            val track = firstAudioTrack(extractor)
+            require(track >= 0) { "文件里没有音频轨道" }
+            extractor.selectTrack(track)
+            val format = extractor.getTrackFormat(track)
+
+            val maxInput = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE))
+                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 256 * 1024
+            val buffer = ByteBuffer.allocate(maxInput.coerceAtLeast(64 * 1024))
+
+            muxer = MediaMuxer(output, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val dstTrack = muxer.addTrack(format)
+            muxer.start()
+
+            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+            val info = MediaCodec.BufferInfo()
+            val span = (endUs - startUs).toFloat().coerceAtLeast(1f)
+            var firstPtsUs = -1L
+
+            while (true) {
+                val size = extractor.readSampleData(buffer, 0)
+                if (size < 0) break
+                val pts = extractor.sampleTime
+                if (pts > endUs) break
+                if (pts >= startUs) {
+                    if (firstPtsUs < 0) firstPtsUs = pts
+                    info.offset = 0
+                    info.size = size
+                    info.presentationTimeUs = pts - firstPtsUs
+                    info.flags =
+                        if ((extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0)
+                            MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                    muxer.writeSampleData(dstTrack, buffer, info)
+                    progress?.onProgress(((pts - startUs) / span).coerceIn(0f, 1f))
+                }
+                if (!extractor.advance()) break
+            }
+            progress?.onProgress(1f)
+        } finally {
+            runCatching { muxer?.stop() }; runCatching { muxer?.release() }
+            runCatching { extractor.release() }
+        }
+    }
+
+    /** Fallback: decode to PCM and re-encode to AAC for non-muxable inputs. */
+    private fun transcode(
+        input: FileDescriptor,
+        output: FileDescriptor,
+        startUs: Long,
+        endUs: Long,
+        progress: Progress?,
+    ) {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         var encoder: MediaCodec? = null
@@ -87,27 +176,18 @@ object AudioTrimmer {
 
             extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
 
-            // Separate BufferInfo objects: sharing one between the decoder and
-            // encoder dequeue calls in the same iteration corrupts sample size
-            // and timestamps.
             val decInfo = MediaCodec.BufferInfo()
             val encInfo = MediaCodec.BufferInfo()
             var extractorDone = false
             var decoderDone = false
             var encoderEosQueued = false
             var encoderDone = false
-
-            // Timestamp of the first emitted PCM so the output starts at 0.
             var firstPtsUs = -1L
 
-            // One decoded PCM buffer can exceed one encoder input buffer; hold
-            // the remainder and push it over several iterations while still
-            // draining the encoder each pass.
             var pendingPcm: ByteBuffer? = null
             var pendingPtsUs = 0L
 
             while (!encoderDone) {
-                // 1) feed encoded samples into the decoder
                 if (!extractorDone) {
                     val inIndex = decoder.dequeueInputBuffer(TIMEOUT_US)
                     if (inIndex >= 0) {
@@ -127,7 +207,6 @@ object AudioTrimmer {
                     }
                 }
 
-                // 2) pull ONE decoded PCM buffer, only when the last is drained
                 if (!decoderDone && pendingPcm == null) {
                     val outIndex = decoder.dequeueOutputBuffer(decInfo, TIMEOUT_US)
                     if (outIndex >= 0) {
@@ -136,7 +215,6 @@ object AudioTrimmer {
                         val inRange = decInfo.presentationTimeUs in startUs..endUs && decInfo.size > 0
                         if (inRange && pcm != null) {
                             if (firstPtsUs < 0) firstPtsUs = decInfo.presentationTimeUs
-                            // Copy out; the decoder buffer is released right after.
                             pcm.position(decInfo.offset)
                             pcm.limit(decInfo.offset + decInfo.size)
                             val copy = ByteBuffer.allocate(decInfo.size)
@@ -154,7 +232,6 @@ object AudioTrimmer {
                     }
                 }
 
-                // 3) push pending PCM into the encoder, one input buffer per pass
                 if (pendingPcm != null) {
                     val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
                     if (inIndex >= 0) {
@@ -166,8 +243,6 @@ object AudioTrimmer {
                         dst.put(slice)
                         encoder.queueInputBuffer(inIndex, 0, chunk, pendingPtsUs, 0)
                         pendingPcm!!.position(pendingPcm!!.position() + chunk)
-                        // Advance pts by the real duration of the bytes consumed
-                        // so split chunks never emit non-monotonic timestamps.
                         if (bytesPerFrame > 0) {
                             val frames = chunk / bytesPerFrame
                             pendingPtsUs += frames.toLong() * 1_000_000L / sampleRate
@@ -185,8 +260,6 @@ object AudioTrimmer {
                     }
                 }
 
-                // 4) drain encoder -> muxer EVERY iteration (prevents the
-                //    input-buffer-starvation deadlock)
                 val encIndex = encoder.dequeueOutputBuffer(encInfo, TIMEOUT_US)
                 if (encIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     require(!muxerStarted) { "编码器格式变化两次" }
