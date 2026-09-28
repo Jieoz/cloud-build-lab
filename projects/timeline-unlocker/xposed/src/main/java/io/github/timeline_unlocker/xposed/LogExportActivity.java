@@ -1,22 +1,19 @@
 package io.github.timeline_unlocker.xposed;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.content.Intent;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
-import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.File;
-
-/** Launcher screen. The hooks do not run here. */
+/** Settings only. The hooked apps write the log into the system Downloads list. */
 public class LogExportActivity extends Activity {
 
     @Override
@@ -42,57 +39,46 @@ public class LogExportActivity extends Activity {
         root.addView(toggle);
 
         TextView body = text(
-                "默认关闭，关闭时不写文件。打开后，地图、Play 服务、GSF 会把日志写到「下载/TimelineUnlocker」。"
-                        + "改完开关要强停这三个应用，或重启一次。",
+                "默认关闭。打开后，地图、Play 服务、GSF 自己把日志写进系统「下载」。改完开关要强停这三个应用，或重启一次。",
                 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
 
-        Button export = new Button(this);
-        export.setText("导出调试日志");
-        export.setAllCaps(false);
-        export.setOnClickListener(v -> exportLogs());
-        root.addView(export);
-
-        TextView hint = text("导出只是把下载目录里已有的会话文件合成一份。开关关着、或打开后还没重新进地图，导出来是空的。", 12, "#757575");
-        hint.setPadding(0, dp(24), 0, 0);
-        root.addView(hint);
+        TextView open = text("打开系统下载", 16, "#8AB4F8");
+        open.setOnClickListener(v -> openDownloads());
+        root.addView(open);
         setContentView(root);
     }
 
     private void onToggle(CompoundButton button, boolean checked) {
-        DiagLog.setEnabled(this, checked);
+        try {
+            DiagLog.setEnabled(this, checked);
+        } catch (Throwable t) {
+            button.setChecked(!checked);
+            Toast.makeText(this, "开关没写上: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
         Toast.makeText(this,
                 checked
-                        ? "已打开。强停地图和 Play 服务后再进地图，日志才会写到「下载/TimelineUnlocker」。"
-                        : "已关闭。正在运行的地图和 Play 服务要强停后才停止写日志。",
+                        ? "已打开。强停地图和 Play 服务后再进地图，文件出现在系统「下载」。"
+                        : "已关闭。正在运行的地图和 Play 服务要强停后才停止写。",
                 Toast.LENGTH_LONG).show();
     }
 
-    private void exportLogs() {
+    private void openDownloads() {
         try {
-            File out = DiagLog.exportToDownloads(this);
-            Toast.makeText(this, "已导出 " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
-            Intent view = new Intent(Intent.ACTION_VIEW);
-            view.setDataAndType(Uri.fromFile(out), "text/plain");
-            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                startActivity(view);
-            } catch (Throwable ignored) {
-                // The file is already in Downloads. Opening it is optional.
-            }
+            startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
         } catch (Throwable t) {
-            Toast.makeText(this, "导出失败: " + t.getClass().getSimpleName() + ": " + t.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "打不开系统下载", Toast.LENGTH_LONG).show();
         }
     }
 
     private String versionLine() {
         try {
             android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return "v" + info.versionName + " (" + info.versionCode + ") · 基于 SherlockChiang/ReLocationReportEnabler";
+            return "v" + info.versionName + " (" + info.versionCode + ")";
         } catch (Throwable t) {
-            return "基于 SherlockChiang/ReLocationReportEnabler";
+            return "";
         }
     }
 
