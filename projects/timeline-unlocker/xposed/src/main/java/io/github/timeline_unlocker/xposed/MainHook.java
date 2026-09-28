@@ -226,13 +226,52 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
-        hookAllReturning(tm, "getSimCountryIso", FAKE_ISO);
-        hookAllReturning(tm, "getSimCountryIsoForPhone", FAKE_ISO);
-        hookAllReturning(tm, "getSimOperator", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getNetworkOperator", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
+        spoofString(tm, "getSimCountryIso", FAKE_ISO);
+        spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIso", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getSimOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
+        hookSubscription(cl);
+    }
+
+    private void hookSubscription(ClassLoader cl) {
+        for (String name : new String[]{
+                "android.telephony.SubscriptionInfo",
+                "android.telephony.SubscriptionManager"}) {
+            Class<?> type;
+            try {
+                type = cl.loadClass(name);
+            } catch (Throwable t) {
+                log("subscription class missing: %s", name);
+                continue;
+            }
+            for (Method method : type.getDeclaredMethods()) {
+                String member = method.getName();
+                if (!TimelineProbe.relevant(name, member)) continue;
+                if (method.getReturnType() != String.class) continue;
+                String fake = subscriptionValue(member);
+                if (fake == null) continue;
+                spoofString(type, member, fake);
+            }
+        }
+    }
+
+    private static String subscriptionValue(String member) {
+        String name = member.toLowerCase(java.util.Locale.US);
+        if (name.contains("country")) return FAKE_ISO;
+        if (name.contains("mcc") && name.contains("mnc")) return FAKE_MCC_MNC;
+        if (name.contains("mcc")) return "310";
+        if (name.contains("mnc")) return "030";
+        if (name.contains("operator")) return FAKE_MCC_MNC;
+        return null;
+    }
+
+    private void spoofString(Class<?> clazz, String name, String value) {
+        hookAllReturning(clazz, name, value);
     }
 
     private void hookAllReturning(Class<?> clazz, String name, Object value) {

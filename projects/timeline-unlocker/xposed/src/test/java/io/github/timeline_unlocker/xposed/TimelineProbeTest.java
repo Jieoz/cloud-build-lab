@@ -18,6 +18,10 @@ public class TimelineProbeTest {
                 "android.telephony.SubscriptionInfo", "getCountryIso"));
         assertTrue(TimelineProbe.relevant(
                 "android.telephony.SubscriptionInfo", "getMccString"));
+        assertTrue(TimelineProbe.relevant(
+                "android.telephony.SubscriptionManager", "getSimOperator"));
+        assertFalse(TimelineProbe.relevant(
+                "android.telephony.SubscriptionInfo", "getIccId"));
     }
 
     @Test
