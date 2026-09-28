@@ -32,8 +32,7 @@ import de.robv.android.xposed.XposedBridge;
 public final class DiagLog {
 
     static final String DIR_NAME = "TimelineUnlocker";
-    static final String PREFS = "timeline_unlocker";
-    static final String KEY_ENABLED = "log_enabled";
+    static final String FLAG_NAME = "log.on";
     private static final String TAG = "TimelineUnlocker-X";
     private static final String MIME = "text/plain";
     private static final int MAX_QUEUED = 400;
@@ -49,32 +48,24 @@ public final class DiagLog {
     private DiagLog() {}
 
     public static boolean isEnabled(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_ENABLED, false);
+        return new File(flagDir(), FLAG_NAME).exists();
     }
 
     public static void setEnabled(Context context, boolean value) {
-        boolean written = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_ENABLED, value)
-                .commit();
-        if (!written) throw new IllegalStateException("preference commit failed");
-        publish(context);
-    }
-
-    /** XSharedPreferences can only read this file when the module data dir is world-readable. */
-    private static void publish(Context context) {
-        String pkg = context.getPackageName();
-        File data = new File("/data/data/" + pkg);
-        data.setExecutable(true, false);
-        data.setReadable(true, false);
-        File prefs = new File(data, "shared_prefs");
-        if (prefs.exists()) {
-            prefs.setExecutable(true, false);
-            prefs.setReadable(true, false);
+        File dir = flagDir();
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("cannot create " + dir.getAbsolutePath());
         }
-        File file = new File(prefs, PREFS + ".xml");
-        if (file.exists()) file.setReadable(true, false);
+        File flag = new File(dir, FLAG_NAME);
+        if (value) {
+            try (FileOutputStream out = new FileOutputStream(flag)) {
+                out.write(new byte[]{'1'});
+            } catch (Throwable t) {
+                throw new IllegalStateException(t.getMessage());
+            }
+        } else if (flag.exists() && !flag.delete()) {
+            throw new IllegalStateException("cannot remove " + flag.getAbsolutePath());
+        }
     }
 
     public static void bind(Context context) {
@@ -91,16 +82,11 @@ public final class DiagLog {
     }
 
     static boolean readHost(Context context) {
-        try {
-            de.robv.android.xposed.XSharedPreferences prefs =
-                    new de.robv.android.xposed.XSharedPreferences("io.github.timeline_unlocker.xposed", PREFS);
-            prefs.makeWorldReadable();
-            prefs.reload();
-            return prefs.getBoolean(KEY_ENABLED, false);
-        } catch (Throwable t) {
-            recordClosed(context, "prefs unreadable: " + t.getClass().getSimpleName());
-            return false;
-        }
+        return new File(flagDir(), FLAG_NAME).exists();
+    }
+
+    private static File flagDir() {
+        return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
     }
 
     private static void recordClosed(Context context, String reason) {

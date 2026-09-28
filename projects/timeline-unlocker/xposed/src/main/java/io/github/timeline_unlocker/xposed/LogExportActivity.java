@@ -39,7 +39,7 @@ public class LogExportActivity extends Activity {
         root.addView(toggle);
 
         TextView body = text(
-                "默认关闭。打开后，地图、Play 服务、GSF 自己把日志写进系统「下载」。改完开关要强停这三个应用，或重启一次。",
+                "默认关闭。打开后只强停地图，再进一次地图。日志出现在系统「下载」。",
                 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
@@ -60,8 +60,8 @@ public class LogExportActivity extends Activity {
         }
         Toast.makeText(this,
                 checked
-                        ? "已打开。强停地图和 Play 服务后再进地图，文件出现在系统「下载」。"
-                        : "已关闭。正在运行的地图和 Play 服务要强停后才停止写。",
+                        ? "已打开。强停地图后再进地图，文件出现在系统「下载」。"
+                        : "已关闭。正在运行的地图要强停后才停止写。",
                 Toast.LENGTH_LONG).show();
     }
 

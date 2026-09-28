@@ -46,13 +46,12 @@ public class MainHook implements IXposedHookLoadPackage {
         // 只在 Maps 进程里给 Location 做 WGS-84 -> GCJ-02 转换，
         // 修正"Maps 把国家当成 us 不再做坐标偏移"造成的小蓝点偏移。
         // GMS / GSF 不应用此转换，它们的位置上传链路使用真实 WGS-84。
+        // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             hookLocationGcj02();
             hookSemanticLocationPoint(cl);
+            bindLog(cl, pkg);
         }
-        // File logging starts after the feature hooks. A storage failure must not
-        // skip the country-code or coordinate compensation above.
-        bindLog(cl, pkg);
     }
 
     private void bindLog(ClassLoader cl, String pkg) {
