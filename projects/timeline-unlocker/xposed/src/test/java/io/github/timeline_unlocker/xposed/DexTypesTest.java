@@ -13,10 +13,10 @@ public class DexTypesTest {
     @Test
     public void countsTypeDescriptorsNotStringConstants() {
         byte[] dex = miniDex(
-                new String[]{"LTimelineActivity;", "Timeline is a string", "LOther;"},
+                new String[]{"Lcom/google/android/apps/maps/TimelineActivity;", "Timeline is a string", "LOther;"},
                 new int[]{0, 2});
         assertEquals(1, DexTypes.countDescriptorContaining(dex, "Timeline"));
-        assertEquals("LTimelineActivity;", DexTypes.descriptorsContaining(dex, "Timeline", 8).get(0));
+        assertEquals("Lcom/google/android/apps/maps/TimelineActivity;", DexTypes.descriptorsContaining(dex, "Timeline", 8).get(0));
     }
 
     @Test
