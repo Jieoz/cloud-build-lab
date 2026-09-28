@@ -55,8 +55,6 @@ public class MainHook extends XposedModule {
         if (PKG_MAPS.equals(pkg)) {
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
-            hookTelephonyManager(cl);
-            hookSystemProperties(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
