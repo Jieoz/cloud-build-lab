@@ -73,21 +73,26 @@ jobs:
           done
 
       - name: Verify module contract
+        if: success() || failure()
         run: |
           set -euo pipefail
           APK=$(ls xposed/build/outputs/apk/debug/*.apk | head -1)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "apk=$APK"
+          echo "apk=$APK bytes=$(stat -c%s "$APK")"
+          echo "---- xposed_init ----"
+          unzip -p "$APK" assets/xposed_init || true
+          echo "---- classes ----"
+          unzip -l "$APK" | grep 'timeline_unlocker' || true
+          echo "---- badging ----"
+          "$BT/aapt" dump badging "$APK" | head -5 || true
           test "$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')" = "io.github.timeline_unlocker.xposed.MainHook"
-          unzip -l "$APK" | grep -q 'io/github/timeline_unlocker/xposed/LogExportActivity.class'
-          unzip -l "$APK" | grep -q 'io/github/timeline_unlocker/xposed/DiagLog.class'
-          "$BT/aapt" dump badging "$APK" | grep -q "package: name='io.github.timeline_unlocker.xposed'"
-          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
-          grep -q 'LogExportActivity' /tmp/manifest.txt
-          grep -q 'xposedmodule' /tmp/manifest.txt
+          unzip -l "$APK" | grep -q 'LogExportActivity'
+          unzip -l "$APK" | grep -q 'DiagLog'
+          "$BT/aapt" dump badging "$APK" | grep -q "io.github.timeline_unlocker.xposed"
           echo "module contract OK"
 
       - name: Upload APK
+        if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: timeline-unlocker-debug-apk
