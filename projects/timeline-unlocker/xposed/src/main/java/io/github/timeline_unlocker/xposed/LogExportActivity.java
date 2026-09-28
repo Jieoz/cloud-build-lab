@@ -5,6 +5,8 @@ import android.app.DownloadManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.CompoundButton;
@@ -14,15 +16,28 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * Settings only. The switch is stored in libxposed remote preferences; the hooked Maps process
- * reads it once at startup (see {@link DiagLog}). No export button, no file merging, no host
- * private-directory reads.
+ * Settings only. The switch is stored in libxposed remote preferences through the Xposed
+ * <b>service</b> (writable in this module app process); the hooked Maps process reads it once at
+ * startup through the read-only hook interface (see {@link DiagLog} / {@link ModuleRuntime}).
+ * No export button, no file merging, no host private-directory reads.
+ *
+ * <p>The service binds asynchronously a moment after the process starts (only when the module is
+ * activated in LSPosed), so the UI starts binding in {@code onCreate} and refreshes the control
+ * state a few times until the service is ready — the switch was previously dead because the UI
+ * tried to write through the hook interface, which does not exist in this process.</p>
  */
 public class LogExportActivity extends Activity {
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private Switch toggle;
+    private TextView body;
+    private int retries;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ModuleRuntime.startServiceBinding();
+
         int pad = dp(20);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -35,21 +50,13 @@ public class LogExportActivity extends Activity {
         version.setPadding(0, dp(4), 0, dp(16));
         root.addView(version);
 
-        boolean active = ModuleRuntime.available();
-
-        Switch toggle = new Switch(this);
+        toggle = new Switch(this);
         toggle.setText("调试日志");
         toggle.setTextColor(Color.parseColor("#FFFFFF"));
-        toggle.setEnabled(active);
-        toggle.setChecked(active && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         toggle.setOnCheckedChangeListener(this::onToggle);
         root.addView(toggle);
 
-        TextView body = text(
-                active
-                        ? "默认关闭。打开后回到地图，日志出现在系统「下载」。不用强停。"
-                        : "模块未在 LSPosed 中激活，无法保存开关。请先激活模块。",
-                15, "#E0E0E0");
+        body = text("", 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
 
@@ -57,15 +64,40 @@ public class LogExportActivity extends Activity {
         open.setOnClickListener(v -> openDownloads());
         root.addView(open);
         setContentView(root);
+
+        refreshState();
+    }
+
+    /**
+     * Reflect the current service state. The service binds asynchronously, so re-check a few times
+     * with a short backoff instead of deciding once at {@code onCreate}.
+     */
+    private void refreshState() {
+        boolean ready = ModuleRuntime.serviceReady();
+        setControlsWithoutCallback(
+                ready,
+                ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
+        body.setText(ready
+                ? "默认关闭。打开后回到地图，日志出现在系统「下载」。不用强停。"
+                : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
+        if (!ready && retries < 10) {
+            retries++;
+            main.postDelayed(this::refreshState, 300);
+        }
+    }
+
+    private void setControlsWithoutCallback(boolean enabled, boolean checked) {
+        toggle.setOnCheckedChangeListener(null);
+        toggle.setEnabled(enabled);
+        toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener(this::onToggle);
     }
 
     private void onToggle(CompoundButton button, boolean checked) {
         boolean ok = ModuleRuntime.writeSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON, checked);
         if (!ok) {
-            button.setOnCheckedChangeListener(null);
-            button.setChecked(!checked);
-            button.setOnCheckedChangeListener(this::onToggle);
-            Toast.makeText(this, "开关没写上，模块可能未激活。", Toast.LENGTH_LONG).show();
+            setControlsWithoutCallback(button.isEnabled(), !checked);
+            Toast.makeText(this, "开关没写上，框架未连接或模块未激活。", Toast.LENGTH_LONG).show();
             return;
         }
         Toast.makeText(this,

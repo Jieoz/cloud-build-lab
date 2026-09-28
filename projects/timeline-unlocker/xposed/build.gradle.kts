@@ -51,5 +51,9 @@ android {
 
 dependencies {
     compileOnly(libs.libxposed.api)
+    // Writable side for the module's own UI process: XposedService + its XposedProvider.
+    // Bundled (implementation) because LSPosed only provides the hook `api` at runtime.
+    implementation(files("libs/libxposed-service-102.0.0.aar"))
+    implementation(files("libs/libxposed-interface-102.0.0.aar"))
     testImplementation(libs.junit)
 }
