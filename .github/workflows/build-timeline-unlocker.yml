@@ -54,7 +54,27 @@ jobs:
           test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/DiagLog.java
           test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/LogExportActivity.java
 
+      - name: Restore signing keystore
+        working-directory: ${{ github.workspace }}
+        env:
+          KEYSTORE_B64: ${{ secrets.XVC_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::XVC_KEYSTORE_B64 secret is missing; refusing to build an APK that cannot be upgraded in place"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+
       - name: Build debug APK
+        working-directory: projects/timeline-unlocker
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
+          REQUIRE_RELEASE_SIGNING: "true"
         run: chmod +x ./gradlew && ./gradlew --no-daemon :xposed:testDebugUnitTest :xposed:assembleDebug
 
       - name: Dump failing test details
@@ -74,6 +94,7 @@ jobs:
 
       - name: Verify module contract
         if: success() || failure()
+        working-directory: projects/timeline-unlocker
         run: |
           set -euo pipefail
           APK=$(ls xposed/build/outputs/apk/debug/*.apk | head -1)
@@ -89,6 +110,11 @@ jobs:
           unzip -l "$APK" | grep -q 'LogExportActivity'
           unzip -l "$APK" | grep -q 'DiagLog'
           "$BT/aapt" dump badging "$APK" | grep -q "io.github.timeline_unlocker.xposed"
+          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" \
+            | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z' | tr -d ':')
+          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
+          echo "cert=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
           echo "module contract OK"
 
       - name: Upload APK
