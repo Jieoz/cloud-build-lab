@@ -54,12 +54,13 @@ public class MainHook extends XposedModule {
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
             hookSemanticLocationPoint(cl);
-            reportTimelineClasses(cl);
             hookTimelineReads(cl, false);
-        } else {
             hookTelephonyManager(cl);
             hookSystemProperties(cl);
+        } else {
             hookTimelineReads(cl, true);
+            hookTelephonyManager(cl);
+            hookSystemProperties(cl);
         }
     }
 
@@ -104,6 +105,7 @@ public class MainHook extends XposedModule {
                         if (pkg.equals(context.getPackageName()) && isMainProcess(pkg)) {
                             boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
                             DiagLog.bind(context, on);
+                            if (PKG_MAPS.equals(pkg)) reportTimelineClasses(context.getClassLoader());
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
                             } else {
@@ -196,7 +198,7 @@ public class MainHook extends XposedModule {
         }
         boolean history = false;
         try {
-            cl.loadClass("com.google.android.apps.gmm.place.PlaceCandidate$Point");
+            cl.loadClass("com.google.android.gms.semanticlocation.PlaceCandidate$Point");
             history = true;
         } catch (Throwable ignored) {
             history = false;
