@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Shared-UID read of Maps / GMS / GSF external session logs. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!--
+      No permissions of this package's own. The diagnostic log is written by the hooked Maps
+      process through MediaStore; this package only hosts the settings launcher.
+    -->
 
     <application
         android:allowBackup="false"
@@ -12,21 +13,19 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name">
 
+        <!--
+          libxposed (API 102) discovers the module through META-INF/xposed/module.prop,
+          java_init.list and scope.list. This marker keeps the app recognizable to manager UIs.
+          The legacy xposedminversion / xposedsharedprefs / xposedscope meta-data are gone: the
+          switch now uses libxposed remote preferences, not the world-readable XML LSPosed 2.3
+          removed.
+        -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
             android:value="@string/xposed_description" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="93" />
-        <meta-data
-            android:name="xposedsharedprefs"
-            android:value="true" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/xposed_scope" />
 
         <activity
             android:name=".LogExportActivity"

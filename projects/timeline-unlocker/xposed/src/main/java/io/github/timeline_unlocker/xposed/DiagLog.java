@@ -22,134 +22,61 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-import de.robv.android.xposed.XposedBridge;
-
 /**
- * Off until the module switch is on. While off, a line is one flag read and a return.
- * While on, the hooked process inserts a text/plain row into the system Downloads collection.
- * The module UI does not copy that file. It opens the system Downloads list.
+ * Diagnostic log, off by default.
+ *
+ * <p>The switch value is read once — outside this class, from libxposed remote preferences
+ * ({@link ModuleRuntime#switchOn}) — when the Maps process starts, and handed to {@link #bind}.
+ * There is no polling, no listener, no broadcast receiver, and no host-file read here.</p>
+ *
+ * <p><b>While OFF</b> (the default): {@link #line} does a single volatile read and returns. The
+ * writer thread is never started, MediaStore is never queried, nothing is queued, nothing touches
+ * disk. The log adds no wake-ups and no battery cost.</p>
+ *
+ * <p><b>While ON</b>: the hooked process appends UTF-8 lines to a single {@code text/plain} row in
+ * the system Downloads collection
+ * ({@code Download/TimelineUnlocker/timeline-<pkg>-yyyyMMdd-<6 hex>.txt}) on one dedicated
+ * background thread; the row Uri is cached so each flush is a single append.</p>
  */
 public final class DiagLog {
 
     static final String DIR_NAME = "TimelineUnlocker";
-    static final String FLAG_NAME = "log-on.txt";
-    private static final String TAG = "TimelineUnlocker-X";
+
+    /** Module SharedPreferences file that carries the switch (see {@link LogExportActivity}). */
+    public static final String PREFS_NAME = "switch";
+    /** Boolean key inside {@link #PREFS_NAME}; absent/false means the log is off. */
+    public static final String KEY_ON = "on";
+
     private static final String MIME = "text/plain";
     private static final int MAX_QUEUED = 400;
 
     private static final Object LOCK = new Object();
     private static final List<String> pending = new ArrayList<>();
     private static final String sessionSuffix = UUID.randomUUID().toString().substring(0, 6);
-    private static volatile boolean enabled;
+
+    private static volatile boolean enabled;   // default false: off until bind(context, true)
     private static volatile Context appContext;
-    private static volatile Handler writer;
+    private static volatile Handler writer;    // created only when ON
     private static volatile Uri rowUri;
 
     private DiagLog() {}
 
-    public static boolean isEnabled(Context context) {
+    /** For tests / UI display only. Reflects the last {@link #bind} value. */
+    public static boolean isEnabled() {
         return enabled;
     }
 
-    public static void applySwitch(boolean value) {
-        enabled = value;
-        Context context = appContext;
-        if (context == null) return;
-        File flag = new File(context.getFilesDir(), "log-on.txt");
-        if (value) {
-            try (FileOutputStream out = new FileOutputStream(flag)) {
-                out.write(new byte[]{'1'});
-            } catch (Throwable ignored) {
-            }
-        } else if (flag.exists()) {
-            flag.delete();
-        }
-        line(value ? "switch on" : "switch off");
-        if (!value) {
-            synchronized (LOCK) {
-                pending.clear();
-            }
-            return;
-        }
-        flushAsync();
-    }
-
-    public static void setEnabled(Context context, boolean value) {
-        enabled = value;
-    }
-
-    private static String versionName(Context context) {
-        try {
-            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
-        } catch (Throwable t) {
-            return "unknown";
-        }
-    }
-
-    public static void bind(Context context) {
-        if (context == null) return;
+    /**
+     * Bind the hooked process with the switch value the caller already read once. When {@code on}
+     * is false this returns after two field writes: no thread, no MediaStore query, no disk I/O.
+     */
+    public static void bind(Context context, boolean on) {
         appContext = context;
+        enabled = on;
+        if (!on) return;
         ensureWriter();
-        enabled = readHost(context);
-        if (!enabled) return;
         line("log file: " + displayPath());
         flushAsync();
-    }
-
-    static String describeSwitch(Context context) {
-        if (context == null) return "no context";
-        if (Build.VERSION.SDK_INT < 29) {
-            return new File(flagDir(), FLAG_NAME).exists() ? "file present" : "file absent";
-        }
-        try {
-            ContentResolver resolver = context.getContentResolver();
-            Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-            String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-            android.database.Cursor cursor = resolver.query(
-                    collection,
-                    new String[]{MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH},
-                    MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
-                    new String[]{Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "%"},
-                    null);
-            int rows = 0;
-            StringBuilder names = new StringBuilder();
-            if (cursor != null) {
-                try {
-                    while (cursor.moveToNext() && rows < 8) {
-                        rows++;
-                        names.append(' ').append(cursor.getString(0));
-                    }
-                } finally {
-                    cursor.close();
-                }
-            }
-            boolean hit = findRow(resolver, collection, relative, FLAG_NAME) != null;
-            return "sdk " + Build.VERSION.SDK_INT
-                    + " query " + relative + FLAG_NAME
-                    + " hit=" + hit
-                    + " rows=" + rows
-                    + names;
-        } catch (Throwable t) {
-            return "query failed " + t.getClass().getName() + " " + t.getMessage();
-        }
-    }
-
-    static boolean readHost(Context context) {
-        if (context == null) return false;
-        return new File(context.getFilesDir(), FLAG_NAME).exists();
-    }
-
-    private static File flagDir() {
-        return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
-    }
-
-    private static void recordClosed(Context context, String reason) {
-        if (context == null) return;
-        try {
-            String text = stamp() + " " + context.getPackageName() + " " + reason;
-            appendMediaStore(context, (text + "\n").getBytes(StandardCharsets.UTF_8));
-        } catch (Throwable ignored) {
-        }
     }
 
     public static String displayPath() {
@@ -158,12 +85,9 @@ public final class DiagLog {
     }
 
     public static void line(String message) {
-        String text = stamp() + " " + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
-        try {
-            XposedBridge.log("[" + TAG + "] " + text);
-        } catch (Throwable ignored) {
-        }
         if (!enabled) return;
+        String text = stamp() + " "
+                + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
         synchronized (LOCK) {
             if (pending.size() >= MAX_QUEUED) pending.remove(0);
             pending.add(text);
@@ -200,10 +124,6 @@ public final class DiagLog {
         if (!ok) {
             synchronized (LOCK) {
                 pending.add(0, stamp() + " file write failed");
-            }
-            try {
-                XposedBridge.log("[" + TAG + "] file write failed -> " + displayPath());
-            } catch (Throwable ignored) {
             }
         }
     }
@@ -258,7 +178,8 @@ public final class DiagLog {
             File dir = new File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
             if (!dir.exists() && !dir.mkdirs()) return false;
-            try (FileOutputStream fos = new FileOutputStream(new File(dir, fileName(context.getPackageName())), true)) {
+            try (FileOutputStream fos = new FileOutputStream(
+                    new File(dir, fileName(context.getPackageName())), true)) {
                 fos.write(bytes);
             }
             return true;

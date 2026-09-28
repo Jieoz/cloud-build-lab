@@ -100,13 +100,19 @@ jobs:
           APK=$(ls xposed/build/outputs/apk/debug/*.apk | head -1)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "apk=$APK bytes=$(stat -c%s "$APK")"
-          echo "---- xposed_init ----"
-          unzip -p "$APK" assets/xposed_init || true
+          echo "---- java_init.list ----"
+          unzip -p "$APK" META-INF/xposed/java_init.list || true
+          echo "---- module.prop ----"
+          unzip -p "$APK" META-INF/xposed/module.prop || true
+          echo "---- scope.list ----"
+          unzip -p "$APK" META-INF/xposed/scope.list || true
           echo "---- classes ----"
           unzip -l "$APK" | grep 'timeline_unlocker' || true
           echo "---- badging ----"
           "$BT/aapt" dump badging "$APK" | head -5 || true
-          test "$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')" = "io.github.timeline_unlocker.xposed.MainHook"
+          test "$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')" = "io.github.timeline_unlocker.xposed.MainHook"
+          test "$(unzip -p "$APK" META-INF/xposed/module.prop | grep -c '^minApiVersion=102')" = "1"
+          unzip -p "$APK" META-INF/xposed/scope.list | grep -q 'com.google.android.apps.maps'
           unzip -l "$APK" | grep -q 'LogExportActivity'
           unzip -l "$APK" | grep -q 'DiagLog'
           "$BT/aapt" dump badging "$APK" | grep -q "io.github.timeline_unlocker.xposed"

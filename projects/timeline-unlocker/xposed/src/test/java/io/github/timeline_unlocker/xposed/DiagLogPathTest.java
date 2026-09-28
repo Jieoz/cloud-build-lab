@@ -2,10 +2,6 @@ package io.github.timeline_unlocker.xposed;
 
 import org.junit.Test;
 
-import java.io.File;
-import java.nio.file.Files;
-
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -17,9 +13,21 @@ public class DiagLogPathTest {
         assertTrue(name.startsWith("timeline-com.google.android.apps.maps-"));
         assertTrue(name.endsWith(".txt"));
         assertFalse(name.contains("session-"));
-        assertFalse(DiagLog.isEnabled(null));
+    }
+
+    @Test
+    public void fileNameSanitizesPackage() {
+        String name = DiagLog.fileName("weird/../pkg name");
+        assertFalse(name.contains("/"));
+        assertFalse(name.contains(" "));
+        assertTrue(name.startsWith("timeline-"));
+    }
+
+    @Test
+    public void offByDefaultAndLineDoesNotThrowWhenOff() {
+        // Default state is off; line() must be a no-op without a bound context and must not throw.
+        assertFalse(DiagLog.isEnabled());
         DiagLog.line("must not be stored while off");
-        DiagLog.applySwitch(true);
-        assertTrue(DiagLog.isEnabled(null));
+        assertFalse(DiagLog.isEnabled());
     }
 }

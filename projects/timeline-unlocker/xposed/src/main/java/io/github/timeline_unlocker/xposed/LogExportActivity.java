@@ -13,7 +13,11 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Settings only. The hooked apps write the log into the system Downloads list. */
+/**
+ * Settings only. The switch is stored in libxposed remote preferences; the hooked Maps process
+ * reads it once at startup (see {@link DiagLog}). No export button, no file merging, no host
+ * private-directory reads.
+ */
 public class LogExportActivity extends Activity {
 
     @Override
@@ -31,15 +35,20 @@ public class LogExportActivity extends Activity {
         version.setPadding(0, dp(4), 0, dp(16));
         root.addView(version);
 
+        boolean active = ModuleRuntime.available();
+
         Switch toggle = new Switch(this);
         toggle.setText("调试日志");
         toggle.setTextColor(Color.parseColor("#FFFFFF"));
-        toggle.setChecked(DiagLog.isEnabled(this));
+        toggle.setEnabled(active);
+        toggle.setChecked(active && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         toggle.setOnCheckedChangeListener(this::onToggle);
         root.addView(toggle);
 
         TextView body = text(
-                "默认关闭。打开后回到地图，日志出现在系统「下载」。不用强停。",
+                active
+                        ? "默认关闭。打开后回到地图，日志出现在系统「下载」。不用强停。"
+                        : "模块未在 LSPosed 中激活，无法保存开关。请先激活模块。",
                 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
@@ -51,14 +60,12 @@ public class LogExportActivity extends Activity {
     }
 
     private void onToggle(CompoundButton button, boolean checked) {
-        try {
-            android.content.Intent signal = new android.content.Intent(LogSwitchReceiver.ACTION);
-            signal.setPackage("com.google.android.apps.maps");
-            signal.putExtra("on", checked);
-            sendBroadcast(signal);
-        } catch (Throwable t) {
+        boolean ok = ModuleRuntime.writeSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON, checked);
+        if (!ok) {
+            button.setOnCheckedChangeListener(null);
             button.setChecked(!checked);
-            Toast.makeText(this, "开关没写上: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            button.setOnCheckedChangeListener(this::onToggle);
+            Toast.makeText(this, "开关没写上，模块可能未激活。", Toast.LENGTH_LONG).show();
             return;
         }
         Toast.makeText(this,
