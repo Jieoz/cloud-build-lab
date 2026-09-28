@@ -191,28 +191,26 @@ public class MainHook implements IXposedHookLoadPackage {
     }
 
     private void hookSatelliteRegion(ClassLoader cl) {
-        XC_MethodHook hook = new XC_MethodHook() {
-            private boolean busy;
+        Class<?> urlConnection;
+        try {
+            urlConnection = XposedHelpers.findClass("com.android.okhttp.internal.huc.HttpURLConnectionImpl", cl);
+        } catch (Throwable t) {
+            log("okhttp connection not found: %s", t);
+            return;
+        }
+        XposedBridge.hookAllMethods(urlConnection, "setRequestProperty", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
-                if (busy || param.args.length == 0 || !(param.args[0] instanceof String)) return;
-                String url = (String) param.args[0];
-                String lower = url.toLowerCase(java.util.Locale.US);
-                if (!lower.contains("khms") && !lower.contains("/vt/lyrs=s")) return;
+                if (param.args.length < 2 || param.args[1] == null) return;
+                String value = String.valueOf(param.args[1]);
+                String lower = value.toLowerCase(java.util.Locale.US);
+                if (!lower.contains("khms") && !lower.contains("lyrs=s") && !lower.contains("googleapis.com/v1/2dtiles")) return;
                 if (lower.contains("gl=cn")) return;
-                param.args[0] = url + (url.contains("?") ? "&" : "?") + "gl=cn";
-                log("satellite region %s", param.args[0]);
+                param.args[1] = value + (value.contains("?") ? "&" : "?") + "gl=cn";
+                log("satellite header %s", param.args[0]);
             }
-        };
-        int hooked = 0;
-        for (java.lang.reflect.Constructor<?> ctor : java.net.URL.class.getDeclaredConstructors()) {
-            Class<?>[] types = ctor.getParameterTypes();
-            if (types.length > 0 && types[0] == String.class) {
-                XposedBridge.hookMethod(ctor, hook);
-                hooked++;
-            }
-        }
-        log("hooked %d URL constructor(s) for satellite region", hooked);
+        });
+        log("hooked okhttp setRequestProperty for satellite region");
     }
 
     private static XC_MethodReplacement constReplacement(final Object value) {
