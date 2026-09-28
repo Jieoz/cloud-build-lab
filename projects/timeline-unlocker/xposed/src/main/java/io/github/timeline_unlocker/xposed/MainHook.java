@@ -51,12 +51,15 @@ public class MainHook extends XposedModule {
         ClassLoader cl = param.getClassLoader();
         log("loading package: %s", pkg);
 
+        bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            bindLog(cl, pkg);
             hookSemanticLocationPoint(cl);
+            reportTimelineClasses(cl);
+            hookTimelineReads(cl, false);
         } else {
             hookTelephonyManager(cl);
             hookSystemProperties(cl);
+            hookTimelineReads(cl, true);
         }
     }
 
@@ -160,6 +163,57 @@ public class MainHook extends XposedModule {
         log("PlaceCandidate$Point GCJ-02 transform installed (%d ctor)", n);
     }
 
+    /**
+     * Counts Timeline-named classes in the Maps APK on this device. Obfuscated builds do not
+     * keep com.google.android.apps.maps.timeline.*, so a fixed name would report "absent" for a
+     * screen that is still there. history = PlaceCandidate loaded; ui = a Timeline* class exists.
+     */
+    private void reportTimelineClasses(ClassLoader cl) {
+        int timeline = 0;
+        int dex = 0;
+        String apk = null;
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object app = at.getMethod("currentApplication").invoke(null);
+            if (app != null) {
+                apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+            }
+        } catch (Throwable t) {
+            log("timeline apk path failed: %s", t.getClass().getSimpleName());
+        }
+        if (apk != null) {
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    String entry = entries.nextElement().getName();
+                    if (!entry.startsWith("classes") || !entry.endsWith(".dex")) continue;
+                    dex++;
+                    timeline += DexTypes.countDescriptorContaining(readAll(zip.getInputStream(zip.getEntry(entry))), "Timeline");
+                }
+            } catch (Throwable t) {
+                log("timeline dex scan failed: %s", t.getClass().getSimpleName());
+            }
+        }
+        boolean history = false;
+        try {
+            cl.loadClass("com.google.android.apps.gmm.place.PlaceCandidate$Point");
+            history = true;
+        } catch (Throwable ignored) {
+            history = false;
+        }
+        log("timeline scan: dex=%d timeline-classes=%d history-point=%s apk=%s",
+                dex, timeline, history ? "present" : "absent", apk == null ? "unknown" : "ok");
+    }
+
+    private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while ((n = in.read(chunk)) >= 0) buf.write(chunk, 0, n);
+        in.close();
+        return buf.toByteArray();
+    }
+
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
 
     private void hookTelephonyManager(ClassLoader cl) {
@@ -180,7 +234,11 @@ public class MainHook extends XposedModule {
             if (!method.getName().equals(name)) continue;
             if (!canReturn(method.getReturnType(), value)) continue;
             try {
-                hook(method).intercept(chain -> value);
+                hook(method).intercept(chain -> {
+                    Object raw = chain.proceed();
+                    noteProbe(clazz.getSimpleName(), name, raw, "raw");
+                    return value;
+                });
                 hooked++;
             } catch (Throwable t) {
                 log("hooking %s.%s failed: %s", clazz.getSimpleName(), name, t);
@@ -212,7 +270,10 @@ public class MainHook extends XposedModule {
             hook(sp.getDeclaredMethod("get", String.class)).intercept(chain -> {
                 String key = (String) chain.getArg(0);
                 String fake = SpoofedSystemProperties.valueFor(key, FAKE_MCC_MNC, FAKE_ISO);
-                if (fake != null) return fake;
+                if (fake != null) {
+                    noteProbe("SystemProperties", key, chain.proceed(), "raw");
+                    return fake;
+                }
                 return chain.proceed();
             });
         } catch (Throwable t) {
@@ -222,11 +283,74 @@ public class MainHook extends XposedModule {
             hook(sp.getDeclaredMethod("get", String.class, String.class)).intercept(chain -> {
                 String key = (String) chain.getArg(0);
                 String fake = SpoofedSystemProperties.valueFor(key, FAKE_MCC_MNC, FAKE_ISO);
-                if (fake != null) return fake;
+                if (fake != null) {
+                    noteProbe("SystemProperties", key, chain.proceed(), "raw");
+                    return fake;
+                }
                 return chain.proceed();
             });
         } catch (Throwable t) {
             log("hook SystemProperties.get(String,String) failed: %s", t);
         }
+    }
+
+    // ---- Timeline entry evidence ---------------------------------------------------------------
+    //
+    // The entry disappears when Maps (or GMS) still reads a non-US country. The spoof hooks
+    // above only cover two TelephonyManager methods inside GMS/GSF, and they log the install,
+    // not the value the host later reads. This pass watches every country/operator read in
+    // Maps, GMS and GSF and writes one line per distinct answer, capped, so a missing entry
+    // can be told apart from "the module never loaded in GMS".
+
+    private static final int MAX_PROBE_LINES = 40;
+
+    private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
+            new java.util.HashSet<>());
+
+    private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
+        String[] names = gmsSide
+                ? new String[]{
+                    "android.telephony.TelephonyManager",
+                    "android.telephony.SubscriptionInfo",
+                    "android.telephony.SubscriptionManager"}
+                : new String[]{
+                    "android.telephony.TelephonyManager",
+                    "android.telephony.SubscriptionInfo",
+                    "android.telephony.SubscriptionManager",
+                    "android.os.SystemProperties"};
+        int watched = 0;
+        for (String name : names) {
+            Class<?> type;
+            try {
+                type = cl.loadClass(name);
+            } catch (Throwable t) {
+                log("timeline probe class missing: %s (%s)", name, t.getClass().getSimpleName());
+                continue;
+            }
+            String simple = type.getSimpleName();
+            for (Method method : type.getDeclaredMethods()) {
+                if (!TimelineProbe.relevant(name, method.getName())) continue;
+                if (method.getReturnType() == void.class) continue;
+                try {
+                    hook(method).intercept(chain -> {
+                        Object result = chain.proceed();
+                        noteProbe(simple, method.getName(), result, "seen");
+                        return result;
+                    });
+                    watched++;
+                } catch (Throwable t) {
+                    log("timeline probe hook failed: %s.%s (%s)",
+                            type.getSimpleName(), method.getName(), t.getClass().getSimpleName());
+                }
+            }
+        }
+        log("timeline probe watching %d method(s) in %s", watched, gmsSide ? "gms" : "maps");
+    }
+
+    private void noteProbe(String owner, String member, Object result, String kind) {
+        String value = result == null ? "null" : String.valueOf(result);
+        String key = kind + " " + owner + "." + member + "=" + value;
+        if (probed.size() >= MAX_PROBE_LINES || !probed.add(key)) return;
+        log("%s %s", kind, TimelineProbe.line(owner, member, value));
     }
 }
