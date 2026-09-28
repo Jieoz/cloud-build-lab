@@ -10,9 +10,16 @@ import java.nio.ByteBuffer
 /**
  * Trims [startUs, endUs] out of an audio source and writes an .m4a (AAC) file.
  *
- * It decodes the source with the platform decoder and re-encodes to AAC, so it
+ * Decodes the source with the platform decoder and re-encodes to AAC, so it
  * works for any format the device can decode (mp3 / m4a / aac / wav / ogg ...),
  * always producing a portable .m4a. One code path, no per-format branching.
+ *
+ * The loop is a single non-blocking state machine that ALWAYS drains the
+ * encoder output every iteration. The previous version fed all decoded PCM
+ * into the encoder input buffers in a tight inner loop WITHOUT draining the
+ * encoder output; once the input pool filled, dequeueInputBuffer spun on -1
+ * forever and the export hung with the progress bar frozen. A codec must never
+ * be fed without being drained in the same loop.
  */
 object AudioTrimmer {
 
@@ -24,10 +31,10 @@ object AudioTrimmer {
     }
 
     /**
-     * @param input      readable source descriptor
-     * @param output     writable destination descriptor (.m4a)
-     * @param startUs    keep-from, microseconds
-     * @param endUs      keep-to, microseconds
+     * @param input   readable source descriptor
+     * @param output  writable destination descriptor (.m4a)
+     * @param startUs keep-from, microseconds
+     * @param endUs   keep-to, microseconds
      */
     fun trim(
         input: FileDescriptor,
@@ -51,6 +58,7 @@ object AudioTrimmer {
 
             val sampleRate = srcFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = srcFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val bytesPerFrame = 2 * channelCount // decoder emits 16-bit PCM
 
             val mime = srcFormat.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalStateException("无法识别音频编码")
@@ -79,13 +87,24 @@ object AudioTrimmer {
 
             extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
 
-            val info = MediaCodec.BufferInfo()
+            // Separate BufferInfo objects: sharing one between the decoder and
+            // encoder dequeue calls in the same iteration corrupts sample size
+            // and timestamps.
+            val decInfo = MediaCodec.BufferInfo()
+            val encInfo = MediaCodec.BufferInfo()
             var extractorDone = false
             var decoderDone = false
+            var encoderEosQueued = false
             var encoderDone = false
 
-            // Track the timestamp of the first emitted PCM so output starts at 0.
+            // Timestamp of the first emitted PCM so the output starts at 0.
             var firstPtsUs = -1L
+
+            // One decoded PCM buffer can exceed one encoder input buffer; hold
+            // the remainder and push it over several iterations while still
+            // draining the encoder each pass.
+            var pendingPcm: ByteBuffer? = null
+            var pendingPtsUs = 0L
 
             while (!encoderDone) {
                 // 1) feed encoded samples into the decoder
@@ -108,41 +127,67 @@ object AudioTrimmer {
                     }
                 }
 
-                // 2) drain decoder -> feed encoder
-                if (!decoderDone) {
-                    val outIndex = decoder.dequeueOutputBuffer(info, TIMEOUT_US)
+                // 2) pull ONE decoded PCM buffer, only when the last is drained
+                if (!decoderDone && pendingPcm == null) {
+                    val outIndex = decoder.dequeueOutputBuffer(decInfo, TIMEOUT_US)
                     if (outIndex >= 0) {
-                        val eos = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+                        val eos = (decInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
                         val pcm = decoder.getOutputBuffer(outIndex)
-                        val inRange = info.presentationTimeUs in startUs..endUs && info.size > 0
+                        val inRange = decInfo.presentationTimeUs in startUs..endUs && decInfo.size > 0
                         if (inRange && pcm != null) {
-                            if (firstPtsUs < 0) firstPtsUs = info.presentationTimeUs
-                            feedEncoder(
-                                encoder, pcm, info.offset, info.size,
-                                info.presentationTimeUs - firstPtsUs
-                            )
+                            if (firstPtsUs < 0) firstPtsUs = decInfo.presentationTimeUs
+                            // Copy out; the decoder buffer is released right after.
+                            pcm.position(decInfo.offset)
+                            pcm.limit(decInfo.offset + decInfo.size)
+                            val copy = ByteBuffer.allocate(decInfo.size)
+                            copy.put(pcm)
+                            copy.flip()
+                            pendingPcm = copy
+                            pendingPtsUs = decInfo.presentationTimeUs - firstPtsUs
                             progress?.onProgress(
-                                ((info.presentationTimeUs - startUs).toFloat()
+                                ((decInfo.presentationTimeUs - startUs).toFloat()
                                         / (endUs - startUs)).coerceIn(0f, 1f)
                             )
                         }
                         decoder.releaseOutputBuffer(outIndex, false)
-                        if (eos) {
-                            // signal end to encoder
-                            val eIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
-                            if (eIndex >= 0) {
-                                encoder.queueInputBuffer(
-                                    eIndex, 0, 0, 0,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                )
-                            }
-                            decoderDone = true
-                        }
+                        if (eos) decoderDone = true
                     }
                 }
 
-                // 3) drain encoder -> muxer
-                val encIndex = encoder.dequeueOutputBuffer(info, TIMEOUT_US)
+                // 3) push pending PCM into the encoder, one input buffer per pass
+                if (pendingPcm != null) {
+                    val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
+                    if (inIndex >= 0) {
+                        val dst = encoder.getInputBuffer(inIndex)!!
+                        dst.clear()
+                        val chunk = minOf(pendingPcm!!.remaining(), dst.capacity())
+                        val slice = pendingPcm!!.duplicate()
+                        slice.limit(slice.position() + chunk)
+                        dst.put(slice)
+                        encoder.queueInputBuffer(inIndex, 0, chunk, pendingPtsUs, 0)
+                        pendingPcm!!.position(pendingPcm!!.position() + chunk)
+                        // Advance pts by the real duration of the bytes consumed
+                        // so split chunks never emit non-monotonic timestamps.
+                        if (bytesPerFrame > 0) {
+                            val frames = chunk / bytesPerFrame
+                            pendingPtsUs += frames.toLong() * 1_000_000L / sampleRate
+                        }
+                        if (!pendingPcm!!.hasRemaining()) pendingPcm = null
+                    }
+                } else if (decoderDone && !encoderEosQueued) {
+                    val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
+                    if (inIndex >= 0) {
+                        encoder.queueInputBuffer(
+                            inIndex, 0, 0, 0,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                        )
+                        encoderEosQueued = true
+                    }
+                }
+
+                // 4) drain encoder -> muxer EVERY iteration (prevents the
+                //    input-buffer-starvation deadlock)
+                val encIndex = encoder.dequeueOutputBuffer(encInfo, TIMEOUT_US)
                 if (encIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     require(!muxerStarted) { "编码器格式变化两次" }
                     muxerTrack = muxer.addTrack(encoder.outputFormat)
@@ -150,16 +195,16 @@ object AudioTrimmer {
                     muxerStarted = true
                 } else if (encIndex >= 0) {
                     val encoded = encoder.getOutputBuffer(encIndex)!!
-                    if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                        info.size = 0
+                    if ((encInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                        encInfo.size = 0
                     }
-                    if (info.size > 0 && muxerStarted) {
-                        encoded.position(info.offset)
-                        encoded.limit(info.offset + info.size)
-                        muxer.writeSampleData(muxerTrack, encoded, info)
+                    if (encInfo.size > 0 && muxerStarted) {
+                        encoded.position(encInfo.offset)
+                        encoded.limit(encInfo.offset + encInfo.size)
+                        muxer.writeSampleData(muxerTrack, encoded, encInfo)
                     }
                     encoder.releaseOutputBuffer(encIndex, false)
-                    if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    if ((encInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                         encoderDone = true
                     }
                 }
@@ -170,27 +215,6 @@ object AudioTrimmer {
             runCatching { encoder?.stop() }; runCatching { encoder?.release() }
             runCatching { muxer?.stop() }; runCatching { muxer?.release() }
             runCatching { extractor.release() }
-        }
-    }
-
-    private fun feedEncoder(
-        encoder: MediaCodec, pcm: ByteBuffer, offset: Int, size: Int, ptsUs: Long
-    ) {
-        var remaining = size
-        var srcPos = offset
-        while (remaining > 0) {
-            val inIndex = encoder.dequeueInputBuffer(TIMEOUT_US)
-            if (inIndex < 0) continue
-            val dst = encoder.getInputBuffer(inIndex)!!
-            dst.clear()
-            val chunk = minOf(remaining, dst.capacity())
-            val dup = pcm.duplicate()
-            dup.position(srcPos)
-            dup.limit(srcPos + chunk)
-            dst.put(dup)
-            encoder.queueInputBuffer(inIndex, 0, chunk, ptsUs, 0)
-            srcPos += chunk
-            remaining -= chunk
         }
     }
 
