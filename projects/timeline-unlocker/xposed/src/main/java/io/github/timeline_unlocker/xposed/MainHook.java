@@ -2,6 +2,7 @@ package io.github.timeline_unlocker.xposed;
 
 import android.app.Application;
 import android.content.Context;
+import android.location.Location;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -33,7 +34,10 @@ public class MainHook extends XposedModule {
     private static final String PKG_MAPS = "com.google.android.apps.maps";
 
     private static final String FAKE_MCC_MNC = "310030";
+    private static final int FAKE_MCC = 310;
+    private static final int FAKE_MNC = 30;
     private static final String FAKE_ISO = "us";
+    private static final String FAKE_ISO_SUBSCRIPTION = "US";
 
     private final java.util.List<String> early = new java.util.ArrayList<>();
 
@@ -54,7 +58,10 @@ public class MainHook extends XposedModule {
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
             hookSemanticLocationPoint(cl);
+            hookLocationGcj02();
             hookTimelineReads(cl, false);
+            hookTelephonyManager(cl);
+            hookSystemProperties(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
@@ -164,6 +171,52 @@ public class MainHook extends XposedModule {
     }
 
     /**
+     * Maps stops applying its own GCJ-02 correction once the SIM looks like {@code us}.
+     * Convert the live location in this process so the blue dot stays on the road.
+     * GMS and GSF keep real WGS-84 for uploads.
+     */
+    private void hookLocationGcj02() {
+        final ThreadLocal<LocationTransformState> state =
+                ThreadLocal.withInitial(LocationTransformState::new);
+        try {
+            hook(Location.class.getDeclaredMethod("getLatitude")).intercept(chain -> {
+                LocationTransformState current = state.get();
+                if (current.inHook) return chain.proceed();
+                current.inHook = true;
+                try {
+                    Location loc = (Location) chain.getThisObject();
+                    double lat = (Double) chain.proceed();
+                    current.cache.update(loc, lat, loc.getLongitude());
+                    return current.cache.transformedLatitude();
+                } finally {
+                    current.inHook = false;
+                }
+            });
+            hook(Location.class.getDeclaredMethod("getLongitude")).intercept(chain -> {
+                LocationTransformState current = state.get();
+                if (current.inHook) return chain.proceed();
+                current.inHook = true;
+                try {
+                    Location loc = (Location) chain.getThisObject();
+                    double lng = (Double) chain.proceed();
+                    current.cache.update(loc, loc.getLatitude(), lng);
+                    return current.cache.transformedLongitude();
+                } finally {
+                    current.inHook = false;
+                }
+            });
+            log("Location GCJ-02 transform hooks installed");
+        } catch (Throwable t) {
+            log("hook Location lat/lng failed: %s", t);
+        }
+    }
+
+    private static final class LocationTransformState {
+        private final LocationTransformCache cache = new LocationTransformCache();
+        private boolean inHook;
+    }
+
+    /**
      * Counts Timeline-named classes in the Maps APK on this device. Obfuscated builds do not
      * keep com.google.android.apps.maps.timeline.*, so a fixed name would report "absent" for a
      * screen that is still there. history = PlaceCandidate loaded; ui = a Timeline* class exists.
@@ -250,17 +303,27 @@ public class MainHook extends XposedModule {
             for (Method method : type.getDeclaredMethods()) {
                 String member = method.getName();
                 if (!TimelineProbe.relevant(name, member)) continue;
+                if (method.getReturnType() == int.class) {
+                    String lower = member.toLowerCase(java.util.Locale.US);
+                    Object numeric = null;
+                    if (lower.contains("mcc") && !lower.contains("mnc")) numeric = FAKE_MCC;
+                    else if (lower.contains("mnc") && !lower.contains("mcc")) numeric = FAKE_MNC;
+                    if (numeric != null) hookAllReturning(type, member, numeric);
+                    continue;
+                }
                 if (method.getReturnType() != String.class) continue;
-                String fake = subscriptionValue(member);
+                String fake = subscriptionValue(member, type.getSimpleName());
                 if (fake == null) continue;
                 spoofString(type, member, fake);
             }
         }
     }
 
-    private static String subscriptionValue(String member) {
+    private static String subscriptionValue(String member, String owner) {
         String name = member.toLowerCase(java.util.Locale.US);
-        if (name.contains("country")) return FAKE_ISO;
+        if (name.contains("country")) {
+            return owner.endsWith("SubscriptionInfo") ? FAKE_ISO_SUBSCRIPTION : FAKE_ISO;
+        }
         if (name.contains("mcc") && name.contains("mnc")) return FAKE_MCC_MNC;
         if (name.contains("mcc")) return "310";
         if (name.contains("mnc")) return "030";
