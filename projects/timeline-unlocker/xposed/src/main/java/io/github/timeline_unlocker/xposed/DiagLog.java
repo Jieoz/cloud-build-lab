@@ -93,7 +93,7 @@ public final class DiagLog {
     static boolean readHost(Context context) {
         try {
             de.robv.android.xposed.XSharedPreferences prefs =
-                    new de.robv.android.xposed.XSharedPreferences(BuildConfig.APPLICATION_ID, PREFS);
+                    new de.robv.android.xposed.XSharedPreferences("io.github.timeline_unlocker.xposed", PREFS);
             prefs.makeWorldReadable();
             prefs.reload();
             return prefs.getBoolean(KEY_ENABLED, false);
@@ -107,7 +107,7 @@ public final class DiagLog {
         if (context == null) return;
         try {
             String text = stamp() + " " + context.getPackageName() + " " + reason;
-            appendMediaStore(context, text);
+            appendMediaStore(context, (text + "\n").getBytes(StandardCharsets.UTF_8));
         } catch (Throwable ignored) {
         }
     }
