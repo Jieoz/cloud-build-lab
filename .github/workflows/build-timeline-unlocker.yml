@@ -107,14 +107,17 @@ jobs:
           echo "---- scope.list ----"
           unzip -p "$APK" META-INF/xposed/scope.list || true
           echo "---- classes ----"
-          unzip -l "$APK" | grep 'timeline_unlocker' || true
+          rm -rf /tmp/dexchk && mkdir -p /tmp/dexchk
+          unzip -o "$APK" 'classes*.dex' -d /tmp/dexchk >/dev/null
+          strings /tmp/dexchk/classes*.dex | grep -o 'io/github/timeline_unlocker/xposed/[A-Za-z]*' | sort -u || true
           echo "---- badging ----"
           "$BT/aapt" dump badging "$APK" | head -5 || true
           test "$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')" = "io.github.timeline_unlocker.xposed.MainHook"
           test "$(unzip -p "$APK" META-INF/xposed/module.prop | grep -c '^minApiVersion=102')" = "1"
           unzip -p "$APK" META-INF/xposed/scope.list | grep -q 'com.google.android.apps.maps'
-          unzip -l "$APK" | grep -q 'LogExportActivity'
-          unzip -l "$APK" | grep -q 'DiagLog'
+          strings /tmp/dexchk/classes*.dex | grep -q 'io/github/timeline_unlocker/xposed/LogExportActivity'
+          strings /tmp/dexchk/classes*.dex | grep -q 'io/github/timeline_unlocker/xposed/DiagLog'
+          strings /tmp/dexchk/classes*.dex | grep -q 'io/github/libxposed/api/XposedModule'
           "$BT/aapt" dump badging "$APK" | grep -q "io.github.timeline_unlocker.xposed"
           ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" \
             | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z' | tr -d ':')
