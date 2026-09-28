@@ -228,6 +228,11 @@ public class MainHook extends XposedModule {
         }
         hookAllReturning(tm, "getSimCountryIso", FAKE_ISO);
         hookAllReturning(tm, "getSimCountryIsoForPhone", FAKE_ISO);
+        hookAllReturning(tm, "getSimOperator", FAKE_MCC_MNC);
+        hookAllReturning(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
+        hookAllReturning(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
+        hookAllReturning(tm, "getNetworkOperator", FAKE_MCC_MNC);
+        hookAllReturning(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
     }
 
     private void hookAllReturning(Class<?> clazz, String name, Object value) {
