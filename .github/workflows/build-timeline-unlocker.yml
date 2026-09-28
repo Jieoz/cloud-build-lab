@@ -55,7 +55,7 @@ jobs:
           test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/LogExportActivity.java
 
       - name: Build debug APK
-        run: gradle --no-daemon :xposed:testDebugUnitTest :xposed:assembleDebug
+        run: chmod +x ./gradlew && ./gradlew --no-daemon :xposed:testDebugUnitTest :xposed:assembleDebug
 
       - name: Dump failing test details
         if: failure()
