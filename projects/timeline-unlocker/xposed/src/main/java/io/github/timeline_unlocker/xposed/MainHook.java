@@ -210,15 +210,10 @@ public class MainHook implements IXposedHookLoadPackage {
         // 这些方法可能存在多种重载（无参 / int subId / String callingPackage 等）
         // 用 hookAllMethods 一网打尽，每个都返回伪造值。
         hookAllReturning(tm, "getSimCountryIso", FAKE_ISO);
-        hookAllReturning(tm, "getNetworkCountryIso", FAKE_ISO);
         hookAllReturning(tm, "getSimOperator", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getNetworkOperator", FAKE_MCC_MNC);
         hookAllReturning(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getNetworkOperatorNumeric", FAKE_MCC_MNC);
         hookAllReturning(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
         hookAllReturning(tm, "getSimCountryIsoForPhone", FAKE_ISO);
-        hookAllReturning(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
     }
 
     private void hookSubscriptionInfo(ClassLoader cl) {
@@ -230,7 +225,6 @@ public class MainHook implements IXposedHookLoadPackage {
             return;
         }
 
-        hookAllReturning(subInfo, "getCountryIso", FAKE_ISO_SUBSCRIPTION);
         hookAllReturning(subInfo, "getMccString", "310");
         hookAllReturning(subInfo, "getMncString", "030");
         hookAllReturning(subInfo, "getMcc", FAKE_MCC);
