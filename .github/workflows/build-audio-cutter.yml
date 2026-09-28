@@ -1,0 +1,106 @@
+name: Build Audio Cutter APK
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release and upload APK'
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - 'projects/audio-cutter/**'
+      - '.github/workflows/build-audio-cutter.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: projects/audio-cutter
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SM"
+          yes | "$SM" --licenses >/dev/null || true
+          "$SM" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Prepare project for CI
+        run: |
+          rm -f local.properties
+          sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties || true
+          test -f settings.gradle
+          test -f build.gradle
+          test -f app/build.gradle
+
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.XVC_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::keystore secret missing; refusing an un-upgradable APK"; exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+
+      - name: Build debug APK
+        env:
+          PGP_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          PGP_KEYSTORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
+          PGP_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
+          PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
+        run: gradle --no-daemon assembleDebug
+
+      - name: Verify APK is signed with the fixed key
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
+          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
+          echo "signer=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED" || { echo "::error::not the fixed key ($ACTUAL)"; exit 1; }
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-cutter-debug-apk
+          path: projects/audio-cutter/app/build/outputs/apk/debug/*.apk
+
+      - name: Generate release metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        run: |
+          echo "RELEASE_TAG=audio-cutter-$(date +'%Y.%m.%d-%H%M%S')" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Audio Cutter ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: projects/audio-cutter/app/build/outputs/apk/debug/*.apk

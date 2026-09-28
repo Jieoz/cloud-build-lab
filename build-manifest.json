@@ -7,6 +7,14 @@
     "apiCommitHelper": "/opt/data/workspace/scripts/github_repo_commit_via_api.py"
   },
   "projects": {
+    "audio-cutter": {
+      "kind": "android-apk",
+      "sourcePath": "projects/audio-cutter",
+      "workflow": "build-audio-cutter.yml",
+      "artifactName": "audio-cutter-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
+    },
     "moto-chargeboost-toggle": {
       "kind": "android-apk",
       "sourcePath": "projects/moto-chargeboost-toggle",
