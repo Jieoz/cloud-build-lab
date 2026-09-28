@@ -56,7 +56,6 @@ public class MainHook implements IXposedHookLoadPackage {
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
-            hookUrlStrings(cl);
         }
     }
 
@@ -76,6 +75,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     Context context = (Application) param.thisObject;
                     if (!pkg.equals(context.getPackageName())) return;
                     DiagLog.bind(context);
+                    hookUrlStrings(context.getClassLoader(), context.getPackageCodePath());
                     android.content.IntentFilter filter = new android.content.IntentFilter(LogSwitchReceiver.ACTION);
                     if (android.os.Build.VERSION.SDK_INT >= 33) {
                         context.registerReceiver(new LogSwitchReceiver(), filter, android.content.Context.RECEIVER_EXPORTED);
@@ -190,7 +190,7 @@ public class MainHook implements IXposedHookLoadPackage {
         private boolean inHook;
     }
 
-    private void hookUrlStrings(ClassLoader cl) {
+    private void hookUrlStrings(ClassLoader cl, String codePath) {
         XC_MethodHook watch = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
@@ -204,15 +204,39 @@ public class MainHook implements IXposedHookLoadPackage {
             }
         };
         int methods = 0;
+        int types = 0;
         try {
-            Class<?> vmDebug = Class.forName("dalvik.system.VMDebug");
-            java.lang.reflect.Method dump = vmDebug.getDeclaredMethod("getLoadedClassList");
-            Class<?>[] snapshot = (Class<?>[]) dump.invoke(null);
-            for (Class<?> type : snapshot) {
-                ClassLoader owner = type.getClassLoader();
-                if (owner != cl) continue;
-                String name = type.getName();
-                if (name.startsWith("java.") || name.startsWith("android.") || name.startsWith("androidx.")) continue;
+            String code = codePath;
+            java.util.zip.ZipFile zip = new java.util.zip.ZipFile(code);
+            java.util.Set<String> names = new java.util.LinkedHashSet<>();
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            byte[] buf = new byte[1 << 20];
+            while (entries.hasMoreElements() && names.size() < 80) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String entryName = entry.getName();
+                if (!entryName.endsWith(".dex") || entry.getSize() > 40_000_000) continue;
+                java.io.InputStream in = zip.getInputStream(entry);
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                in.close();
+                String text = new String(out.toByteArray(), java.nio.charset.StandardCharsets.ISO_8859_1);
+                int from = 0;
+                while (names.size() < 80 && (from = text.indexOf("http", from)) >= 0) {
+                    int start = text.lastIndexOf('L', from);
+                    int end = text.indexOf(';', start);
+                    if (start >= 0 && end > start && end - start < 180 && from - start < 160) {
+                        String raw = text.substring(start + 1, end).replace('/', '.');
+                        if (!raw.startsWith("java.") && !raw.startsWith("android.") && raw.indexOf('.') > 0) names.add(raw);
+                    }
+                    from += 4;
+                }
+            }
+            zip.close();
+            for (String name : names) {
+                Class<?> type;
+                try { type = cl.loadClass(name); } catch (Throwable ignored) { continue; }
+                types++;
                 for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
                     boolean takesString = false;
                     for (Class<?> parameter : method.getParameterTypes()) {
@@ -223,6 +247,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     methods++;
                 }
             }
+            log("dex classes with urls: %d", types);
         } catch (Throwable t) {
             log("url scan failed: %s", t);
         }
