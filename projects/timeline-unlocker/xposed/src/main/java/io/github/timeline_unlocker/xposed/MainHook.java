@@ -198,19 +198,14 @@ public class MainHook implements IXposedHookLoadPackage {
             log("okhttp connection not found: %s", t);
             return;
         }
-        XposedBridge.hookAllMethods(urlConnection, "setRequestProperty", new XC_MethodHook() {
+        XposedBridge.hookAllConstructors(urlConnection, new XC_MethodHook() {
             @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                if (param.args.length < 2 || param.args[1] == null) return;
-                String value = String.valueOf(param.args[1]);
-                String lower = value.toLowerCase(java.util.Locale.US);
-                if (!lower.contains("khms") && !lower.contains("lyrs=s") && !lower.contains("googleapis.com/v1/2dtiles")) return;
-                if (lower.contains("gl=cn")) return;
-                param.args[1] = value + (value.contains("?") ? "&" : "?") + "gl=cn";
-                log("satellite header %s", param.args[0]);
+            protected void afterHookedMethod(MethodHookParam param) {
+                Object url = param.args.length > 0 ? param.args[0] : null;
+                log("http url %s", url);
             }
         });
-        log("hooked okhttp setRequestProperty for satellite region");
+        log("recording okhttp urls, requests unchanged");
     }
 
     private static XC_MethodReplacement constReplacement(final Object value) {
