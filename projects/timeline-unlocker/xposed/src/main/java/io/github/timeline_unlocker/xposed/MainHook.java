@@ -55,8 +55,6 @@ public class MainHook implements IXposedHookLoadPackage {
         // GMS / GSF 不应用此转换，它们的位置上传链路使用真实 WGS-84。
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
-            hookLocationGcj02();
-            hookSemanticLocationPoint(cl);
             bindLog(cl, pkg);
         }
     }
