@@ -242,6 +242,41 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
+        reportTimelineCallers();
+    }
+
+    private void reportTimelineCallers() {
+        String apk = null;
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object app = at.getMethod("currentApplication").invoke(null);
+            if (app != null) {
+                apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+            }
+        } catch (Throwable t) {
+            log("timeline callers path failed: %s", t.getClass().getSimpleName());
+            return;
+        }
+        if (apk == null) return;
+        java.util.List<String> callers = new java.util.ArrayList<>();
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements() && callers.size() < 8) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                callers.addAll(DexTypes.methodsContaining(
+                        readAll(zip.getInputStream(entry)), "TimelineWrapper", 8 - callers.size()));
+            }
+        } catch (Throwable t) {
+            log("timeline callers failed: %s", t.getClass().getSimpleName());
+            return;
+        }
+        if (callers.isEmpty()) {
+            log("timeline callers: none");
+            return;
+        }
+        for (String caller : callers) log("timeline caller: %s", caller);
     }
 
     private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
