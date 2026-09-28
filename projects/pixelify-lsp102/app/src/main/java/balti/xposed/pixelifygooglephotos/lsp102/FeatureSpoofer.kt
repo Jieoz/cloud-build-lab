@@ -121,6 +121,8 @@ class FeatureSpoofer {
      * then set result as `false`.
      * Else don't set anything.
      */
+    private val seen = HashSet<String>()
+
     private fun spoofFeatureEnquiryResultIfNeeded(param: HookBridge.Call){
         val arguments = param.args.toList()
 
@@ -142,7 +144,7 @@ class FeatureSpoofer {
             param.result = false
             log("FALSE - feature args: $arguments")
         }
-        else {
+        else if (seen.add(arguments.toString())) {
             log("NO_CHANGE - feature args: $arguments")
         }
     }

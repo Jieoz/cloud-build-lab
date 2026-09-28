@@ -10,7 +10,7 @@
     changelog
     -->
 
-    <string name="app_name">Pixelify Google Photos·测试</string>
+    <string name="app_name">Pixelify Google Photos</string>
 
     <!--activity_main.xml-->
     <string name="reset">還原</string>

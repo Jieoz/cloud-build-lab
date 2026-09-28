@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace "balti.xposed.pixelifygooglephotos.lsp102"
+    namespace "balti.xposed.pixelifygooglephotos"
     compileSdk 35
 
     defaultConfig {
-        applicationId "balti.xposed.pixelifygooglephotos.lsp102"
+        applicationId "balti.xposed.pixelifygooglephotos"
         minSdk 26
         targetSdk 35
-        versionCode 27
-        versionName "4.2-lsp102-test23"
+        versionCode 28
+        versionName "4.2"
     }
 
     buildFeatures {

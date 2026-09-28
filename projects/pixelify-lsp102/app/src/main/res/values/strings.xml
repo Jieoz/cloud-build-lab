@@ -1,7 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="MissingTranslation">
 
-    <string name="app_name">Pixelify GPhotos·测试</string>
+    <string name="app_name">Pixelify GPhotos</string>
     <string name="xposed_description">在任意设备的 Google 相册里启用 Pixel 功能。libxposed API 102。</string>
 
     <string name="reset">重置</string>
