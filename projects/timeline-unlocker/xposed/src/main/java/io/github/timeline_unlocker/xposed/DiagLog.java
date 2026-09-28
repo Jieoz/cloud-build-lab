@@ -48,7 +48,20 @@ public final class DiagLog {
     private DiagLog() {}
 
     public static boolean isEnabled(Context context) {
-        return readHost(context);
+        return enabled;
+    }
+
+    public static void applySwitch(boolean value) {
+        enabled = value;
+        Context context = appContext;
+        if (context == null) return;
+        line(value ? "switch on" : "switch off");
+        if (!value) {
+            synchronized (LOCK) {
+                pending.clear();
+            }
+        }
+        flushAsync();
     }
 
     public static void setEnabled(Context context, boolean value) {
@@ -105,8 +118,8 @@ public final class DiagLog {
     public static void bind(Context context) {
         if (context == null) return;
         appContext = context;
-        enabled = true;
         ensureWriter();
+        if (!enabled) return;
         line("log file: " + displayPath());
         line("switch " + describeSwitch(context));
         flushAsync();
@@ -188,6 +201,7 @@ public final class DiagLog {
             XposedBridge.log("[" + TAG + "] " + text);
         } catch (Throwable ignored) {
         }
+        if (!enabled) return;
         synchronized (LOCK) {
             if (pending.size() >= MAX_QUEUED) pending.remove(0);
             pending.add(text);

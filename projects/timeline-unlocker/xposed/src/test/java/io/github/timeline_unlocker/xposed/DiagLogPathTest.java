@@ -17,6 +17,11 @@ public class DiagLogPathTest {
         assertTrue(name.startsWith("timeline-com.google.android.apps.maps-"));
         assertTrue(name.endsWith(".txt"));
         assertFalse(name.contains("session-"));
-        assertTrue("log-on.txt".equals(DiagLog.FLAG_NAME));
+        assertFalse(DiagLog.isEnabled(null));
+        DiagLog.applySwitch(false);
+        assertFalse(DiagLog.isEnabled(null));
+        DiagLog.line("must not be stored while off");
+        DiagLog.applySwitch(true);
+        assertTrue(DiagLog.isEnabled(null));
     }
 }

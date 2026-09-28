@@ -53,11 +53,10 @@ public class LogExportActivity extends Activity {
     private void onToggle(CompoundButton button, boolean checked) {
         try {
             DiagLog.setEnabled(this, checked);
-            getContentResolver().call(
-                    android.net.Uri.parse("content://com.google.android.apps.maps.mediascraper"),
-                    checked ? "timeline_log_on" : "timeline_log_off",
-                    null,
-                    null);
+            android.content.Intent signal = new android.content.Intent(LogSwitchReceiver.ACTION);
+            signal.setPackage("com.google.android.apps.maps");
+            signal.putExtra("on", checked);
+            sendBroadcast(signal, "io.github.timeline_unlocker.xposed.LOG_SWITCH");
         } catch (Throwable t) {
             button.setChecked(!checked);
             Toast.makeText(this, "开关没写上: " + t.getMessage(), Toast.LENGTH_LONG).show();
