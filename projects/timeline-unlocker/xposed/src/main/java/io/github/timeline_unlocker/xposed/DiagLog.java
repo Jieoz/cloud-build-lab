@@ -32,7 +32,7 @@ import de.robv.android.xposed.XposedBridge;
 public final class DiagLog {
 
     static final String DIR_NAME = "TimelineUnlocker";
-    static final String FLAG_NAME = "log.on";
+    static final String FLAG_NAME = "log-on.txt";
     private static final String TAG = "TimelineUnlocker-X";
     private static final String MIME = "text/plain";
     private static final int MAX_QUEUED = 400;
@@ -87,15 +87,19 @@ public final class DiagLog {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, FLAG_NAME);
             values.put(MediaStore.MediaColumns.MIME_TYPE, MIME);
             values.put(MediaStore.MediaColumns.RELATIVE_PATH, relative);
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
             uri = resolver.insert(collection, values);
         }
-        if (uri == null) throw new IllegalStateException("cannot insert log.on");
+        if (uri == null) throw new IllegalStateException("cannot insert log-on.txt");
         try (OutputStream out = resolver.openOutputStream(uri, "wt")) {
-            if (out == null) throw new IllegalStateException("cannot open log.on");
+            if (out == null) throw new IllegalStateException("cannot open log-on.txt");
             out.write(new byte[]{'1'});
         } catch (Throwable t) {
             throw new IllegalStateException(t.getMessage());
         }
+        ContentValues done = new ContentValues();
+        done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+        resolver.update(uri, done, null, null);
     }
 
     public static void bind(Context context) {

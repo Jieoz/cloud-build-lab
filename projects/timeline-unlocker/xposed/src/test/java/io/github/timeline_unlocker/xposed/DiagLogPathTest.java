@@ -17,6 +17,6 @@ public class DiagLogPathTest {
         assertTrue(name.startsWith("timeline-com.google.android.apps.maps-"));
         assertTrue(name.endsWith(".txt"));
         assertFalse(name.contains("session-"));
-        assertTrue("log.on".equals(DiagLog.FLAG_NAME));
+        assertTrue("log-on.txt".equals(DiagLog.FLAG_NAME));
     }
 }
