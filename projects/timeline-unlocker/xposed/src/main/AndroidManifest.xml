@@ -41,15 +41,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <receiver
-            android:name=".LogSwitchReceiver"
-            android:exported="true"
-            android:permission="io.github.timeline_unlocker.xposed.LOG_SWITCH">
-            <intent-filter>
-                <action android:name="io.github.timeline_unlocker.xposed.SET_LOG" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

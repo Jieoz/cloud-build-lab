@@ -65,54 +65,7 @@ public final class DiagLog {
     }
 
     public static void setEnabled(Context context, boolean value) {
-        if (Build.VERSION.SDK_INT >= 29) {
-            setEnabledMediaStore(context, value);
-            return;
-        }
-        File dir = flagDir();
-        if (!dir.exists() && !dir.mkdirs()) {
-            throw new IllegalStateException("cannot create " + dir.getAbsolutePath());
-        }
-        File flag = new File(dir, FLAG_NAME);
-        if (value) {
-            try (FileOutputStream out = new FileOutputStream(flag)) {
-                out.write(new byte[]{'1'});
-            } catch (Throwable t) {
-                throw new IllegalStateException(t.getMessage());
-            }
-        } else if (flag.exists() && !flag.delete()) {
-            throw new IllegalStateException("cannot remove " + flag.getAbsolutePath());
-        }
-    }
-
-    private static void setEnabledMediaStore(Context context, boolean value) {
-        ContentResolver resolver = context.getContentResolver();
-        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-        String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-        Uri existing = findRow(resolver, collection, relative, FLAG_NAME);
-        if (!value) {
-            if (existing != null) resolver.delete(existing, null, null);
-            return;
-        }
-        Uri uri = existing;
-        if (uri == null) {
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, FLAG_NAME);
-            values.put(MediaStore.MediaColumns.MIME_TYPE, MIME);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, relative);
-            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
-            uri = resolver.insert(collection, values);
-        }
-        if (uri == null) throw new IllegalStateException("cannot insert log-on.txt");
-        try (OutputStream out = resolver.openOutputStream(uri, "wt")) {
-            if (out == null) throw new IllegalStateException("cannot open log-on.txt");
-            out.write(new byte[]{'1'});
-        } catch (Throwable t) {
-            throw new IllegalStateException(t.getMessage());
-        }
-        ContentValues done = new ContentValues();
-        done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-        resolver.update(uri, done, null, null);
+        enabled = value;
     }
 
     public static void bind(Context context) {

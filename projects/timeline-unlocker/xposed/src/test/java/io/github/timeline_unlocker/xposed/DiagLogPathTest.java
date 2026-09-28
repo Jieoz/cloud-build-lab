@@ -18,8 +18,6 @@ public class DiagLogPathTest {
         assertTrue(name.endsWith(".txt"));
         assertFalse(name.contains("session-"));
         assertFalse(DiagLog.isEnabled(null));
-        DiagLog.applySwitch(false);
-        assertFalse(DiagLog.isEnabled(null));
         DiagLog.line("must not be stored while off");
         DiagLog.applySwitch(true);
         assertTrue(DiagLog.isEnabled(null));

@@ -77,6 +77,12 @@ public class MainHook implements IXposedHookLoadPackage {
                     Context context = (Application) param.thisObject;
                     if (!pkg.equals(context.getPackageName())) return;
                     DiagLog.bind(context);
+                    android.content.IntentFilter filter = new android.content.IntentFilter(LogSwitchReceiver.ACTION);
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        context.registerReceiver(new LogSwitchReceiver(), filter, android.content.Context.RECEIVER_EXPORTED);
+                    } else {
+                        context.registerReceiver(new LogSwitchReceiver(), filter);
+                    }
                     for (String message : earlyLines()) DiagLog.line(message);
                 }
             });
