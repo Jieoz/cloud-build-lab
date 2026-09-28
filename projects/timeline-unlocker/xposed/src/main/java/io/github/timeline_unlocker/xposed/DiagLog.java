@@ -75,13 +75,14 @@ public final class DiagLog {
 
     public static void setEnabled(Context context, boolean value) {
         enabled = value;
-        if (context == null || !value || Build.VERSION.SDK_INT < 29) return;
+        if (context == null || Build.VERSION.SDK_INT < 29) return;
         try {
             ContentResolver resolver = context.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
             String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
             String name = "module-" + versionName(context) + ".txt";
-            if (findRow(resolver, collection, relative, name) != null) return;
+            Uri existing = findRow(resolver, collection, relative, name);
+            if (existing != null) resolver.delete(existing, null, null);
             ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
             values.put(MediaStore.MediaColumns.MIME_TYPE, MIME);
@@ -91,8 +92,8 @@ public final class DiagLog {
             OutputStream out = resolver.openOutputStream(uri, "wt");
             if (out == null) return;
             try {
-                out.write((stamp() + " module switch on " + versionName(context) + "\n")
-                        .getBytes(StandardCharsets.UTF_8));
+                out.write((stamp() + " module switch " + (value ? "on" : "off")
+                        + " " + versionName(context) + "\n").getBytes(StandardCharsets.UTF_8));
             } finally {
                 out.close();
             }
@@ -112,8 +113,7 @@ public final class DiagLog {
         if (context == null) return;
         appContext = context;
         ensureWriter();
-        enabled = new File(context.getFilesDir(), "log-on.txt").exists();
-        if (!enabled) return;
+        enabled = true;
         line("log file: " + displayPath());
         line("switch " + describeSwitch(context));
         flushAsync();
