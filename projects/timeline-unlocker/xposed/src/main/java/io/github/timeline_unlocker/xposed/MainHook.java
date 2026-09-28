@@ -205,13 +205,14 @@ public class MainHook implements IXposedHookLoadPackage {
         };
         int methods = 0;
         try {
-            java.lang.reflect.Field classes = ClassLoader.class.getDeclaredField("classes");
-            classes.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.Vector<Class<?>> loaded = (java.util.Vector<Class<?>>) classes.get(cl);
-            Class<?>[] snapshot = loaded.toArray(new Class<?>[0]);
+            Class<?> vmDebug = Class.forName("dalvik.system.VMDebug");
+            java.lang.reflect.Method dump = vmDebug.getDeclaredMethod("getLoadedClassList");
+            Class<?>[] snapshot = (Class<?>[]) dump.invoke(null);
             for (Class<?> type : snapshot) {
-                if (type.getName().startsWith("java.") || type.getName().startsWith("android.")) continue;
+                ClassLoader owner = type.getClassLoader();
+                if (owner != cl) continue;
+                String name = type.getName();
+                if (name.startsWith("java.") || name.startsWith("android.") || name.startsWith("androidx.")) continue;
                 for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
                     boolean takesString = false;
                     for (Class<?> parameter : method.getParameterTypes()) {
