@@ -55,7 +55,6 @@ public class MainHook implements IXposedHookLoadPackage {
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
-            hookLocationGcj02();
             hookSemanticLocationPoint(cl);
         }
     }
