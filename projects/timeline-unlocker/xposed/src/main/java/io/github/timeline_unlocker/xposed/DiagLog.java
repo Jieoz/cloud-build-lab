@@ -112,7 +112,7 @@ public final class DiagLog {
         flushAsync();
     }
 
-    private static String describeSwitch(Context context) {
+    static String describeSwitch(Context context) {
         if (context == null) return "no context";
         if (Build.VERSION.SDK_INT < 29) {
             return new File(flagDir(), FLAG_NAME).exists() ? "file present" : "file absent";

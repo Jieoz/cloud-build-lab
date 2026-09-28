@@ -45,6 +45,10 @@ public class MainHook implements IXposedHookLoadPackage {
 
         log("loading package: %s (process=%s)", pkg, lpparam.processName);
 
+        if ("com.google.android.apps.maps".equals(pkg)) {
+            hookLogCommand(lpparam.classLoader);
+        }
+
         ClassLoader cl = lpparam.classLoader;
         hookTelephonyManager(cl);
         hookSubscriptionInfo(cl);
@@ -66,6 +70,33 @@ public class MainHook implements IXposedHookLoadPackage {
             java.util.List<String> copy = new java.util.ArrayList<>(EARLY);
             EARLY.clear();
             return copy;
+        }
+    }
+
+    private void hookLogCommand(ClassLoader cl) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "android.content.ContentProvider",
+                    cl,
+                    "call",
+                    String.class,
+                    String.class,
+                    android.os.Bundle.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            String method = (String) param.args[0];
+                            if (!"timeline_log_on".equals(method) && !"timeline_log_off".equals(method)) return;
+                            Context context = ((android.content.ContentProvider) param.thisObject).getContext();
+                            boolean on = "timeline_log_on".equals(method);
+                            DiagLog.setEnabled(context, on);
+                            DiagLog.line("switch command " + method + " " + DiagLog.describeSwitch(context));
+                            param.setResult(new android.os.Bundle());
+                        }
+                    });
+            log("log switch command hook installed");
+        } catch (Throwable t) {
+            log("log switch command hook failed: %s", t);
         }
     }
 
