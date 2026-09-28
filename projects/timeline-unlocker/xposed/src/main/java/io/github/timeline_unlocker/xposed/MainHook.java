@@ -44,8 +44,10 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         log("loading package: %s (process=%s)", pkg, lpparam.processName);
-        log("country hooks paused, requests unchanged");
         ClassLoader cl = lpparam.classLoader;
+        hookTelephonyManager(cl);
+        hookSubscriptionInfo(cl);
+        hookSystemProperties(cl);
 
         // 只在 Maps 进程里给 Location 做 WGS-84 -> GCJ-02 转换，
         // 修正"Maps 把国家当成 us 不再做坐标偏移"造成的小蓝点偏移。
@@ -53,6 +55,8 @@ public class MainHook implements IXposedHookLoadPackage {
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
+            hookLocationGcj02();
+            hookSemanticLocationPoint(cl);
         }
     }
 
@@ -146,19 +150,41 @@ public class MainHook implements IXposedHookLoadPackage {
         final java.util.concurrent.atomic.AtomicBoolean sampled =
                 new java.util.concurrent.atomic.AtomicBoolean();
 
-        XC_MethodHook sampleHook = new XC_MethodHook() {
+        XC_MethodHook latHook = new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
                 LocationTransformState current = state.get();
-                if (current.inHook || !sampled.compareAndSet(false, true)) return;
+                if (current.inHook) return;
                 current.inHook = true;
                 try {
                     Location loc = (Location) param.thisObject;
                     double lat = loc.getLatitude();
                     double lng = loc.getLongitude();
+                    if (!CoordTransform.shouldApplyGcj02(lat, lng)) return;
                     double[] gcj = CoordTransform.wgs84ToGcj02(lat, lng);
-                    log("location sample delta=%.0fm provider=%s",
-                            distanceMeters(lat, lng, gcj[0], gcj[1]), loc.getProvider());
+                    param.setResult(gcj[0]);
+                    if (sampled.compareAndSet(false, true)) {
+                        log("location moved delta=%.0fm provider=%s",
+                                distanceMeters(lat, lng, gcj[0], gcj[1]), loc.getProvider());
+                    }
+                } finally {
+                    current.inHook = false;
+                }
+            }
+        };
+        XC_MethodHook lngHook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                LocationTransformState current = state.get();
+                if (current.inHook) return;
+                current.inHook = true;
+                try {
+                    Location loc = (Location) param.thisObject;
+                    double lat = loc.getLatitude();
+                    double lng = loc.getLongitude();
+                    if (!CoordTransform.shouldApplyGcj02(lat, lng)) return;
+                    double[] gcj = CoordTransform.wgs84ToGcj02(lat, lng);
+                    param.setResult(gcj[1]);
                 } finally {
                     current.inHook = false;
                 }
@@ -166,8 +192,9 @@ public class MainHook implements IXposedHookLoadPackage {
         };
 
         try {
-            XposedHelpers.findAndHookMethod(Location.class, "getLatitude", sampleHook);
-            log("Location GCJ-02 sample only, live position not moved");
+            XposedHelpers.findAndHookMethod(Location.class, "getLatitude", latHook);
+            XposedHelpers.findAndHookMethod(Location.class, "getLongitude", lngHook);
+            log("Location GCJ-02 transform hooks installed");
         } catch (Throwable t) {
             log("hook Location lat/lng failed: %s", t);
         }
