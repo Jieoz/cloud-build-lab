@@ -247,30 +247,57 @@ class MainActivity : AppCompatActivity() {
         val mp = MediaPlayer()
         player = mp
         try {
+            // Any decode/IO error surfaces here instead of crashing the process.
+            mp.setOnErrorListener { _, what, extra ->
+                runOnUiThread {
+                    if (player === mp) {
+                        stopPlayback()
+                        tvStatus.text = "试听失败（错误码 $what/$extra）"
+                    }
+                }
+                true // handled; do not propagate
+            }
             mp.setDataSource(this, uri)
             mp.setOnPreparedListener {
-                mp.seekTo(startMs.toInt())
-                mp.start()
-                btnStop.isEnabled = true
+                // The user may have started another preview before this one
+                // finished preparing; only drive the player that is still current.
+                if (player !== mp) return@setOnPreparedListener
+                runCatching {
+                    mp.seekTo(startMs.toInt())
+                    mp.start()
+                    btnStop.isEnabled = true
+                }
                 io.execute {
-                    while (player === mp && mp.isPlaying && mp.currentPosition < endMs) {
+                    // Guard EVERY MediaPlayer call: the main thread can release
+                    // `mp` at any moment (new preview / stop / activity teardown).
+                    // `player === mp` alone is a TOCTOU check — a release can land
+                    // between the check and the call, so calls that would touch a
+                    // released player are wrapped and end the loop on failure.
+                    while (player === mp) {
+                        val keepGoing = runCatching {
+                            mp.isPlaying && mp.currentPosition < endMs
+                        }.getOrDefault(false)
+                        if (!keepGoing) break
                         Thread.sleep(50)
                     }
-                    if (player === mp) runOnUiThread { stopPlayback() }
+                    if (player === mp) runOnUiThread { if (player === mp) stopPlayback() }
                 }
             }
             mp.prepareAsync()
         } catch (e: Exception) {
+            if (player === mp) stopPlayback()
             tvStatus.text = "试听失败：${e.message}"
         }
     }
 
     private fun stopPlayback() {
         player?.let {
+            // Detach first so the polling thread's `player === mp` check fails
+            // before we release, closing the race window.
+            player = null
             runCatching { if (it.isPlaying) it.stop() }
-            it.release()
+            runCatching { it.release() }
         }
-        player = null
         btnStop.isEnabled = false
     }
 
