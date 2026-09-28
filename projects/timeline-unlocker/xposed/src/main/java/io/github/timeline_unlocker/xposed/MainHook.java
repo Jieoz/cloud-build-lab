@@ -147,37 +147,22 @@ public class MainHook implements IXposedHookLoadPackage {
     private void hookLocationGcj02() {
         final ThreadLocal<LocationTransformState> state =
                 ThreadLocal.withInitial(LocationTransformState::new);
+        final java.util.concurrent.atomic.AtomicBoolean sampled =
+                new java.util.concurrent.atomic.AtomicBoolean();
 
-        XC_MethodHook latHook = new XC_MethodHook() {
+        XC_MethodHook sampleHook = new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) {
                 LocationTransformState current = state.get();
-                if (current.inHook) return;
+                if (current.inHook || !sampled.compareAndSet(false, true)) return;
                 current.inHook = true;
                 try {
                     Location loc = (Location) param.thisObject;
-                    double lat = (Double) param.getResult();
-                    double lng = loc.getLongitude();
-                    current.cache.update(loc, lat, lng);
-                    param.setResult(current.cache.transformedLatitude());
-                } finally {
-                    current.inHook = false;
-                }
-            }
-        };
-
-        XC_MethodHook lngHook = new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                LocationTransformState current = state.get();
-                if (current.inHook) return;
-                current.inHook = true;
-                try {
-                    Location loc = (Location) param.thisObject;
-                    double lng = (Double) param.getResult();
                     double lat = loc.getLatitude();
-                    current.cache.update(loc, lat, lng);
-                    param.setResult(current.cache.transformedLongitude());
+                    double lng = loc.getLongitude();
+                    double[] gcj = CoordTransform.wgs84ToGcj02(lat, lng);
+                    log("location sample delta=%.0fm provider=%s",
+                            distanceMeters(lat, lng, gcj[0], gcj[1]), loc.getProvider());
                 } finally {
                     current.inHook = false;
                 }
@@ -185,12 +170,20 @@ public class MainHook implements IXposedHookLoadPackage {
         };
 
         try {
-            XposedHelpers.findAndHookMethod(Location.class, "getLatitude", latHook);
-            XposedHelpers.findAndHookMethod(Location.class, "getLongitude", lngHook);
-            log("Location GCJ-02 transform hooks installed");
+            XposedHelpers.findAndHookMethod(Location.class, "getLatitude", sampleHook);
+            log("Location GCJ-02 sample only, live position not moved");
         } catch (Throwable t) {
             log("hook Location lat/lng failed: %s", t);
         }
+    }
+
+    private static double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        double lat = Math.toRadians(lat2 - lat1);
+        double lng = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(lat / 2) * Math.sin(lat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lng / 2) * Math.sin(lng / 2);
+        return 6371000.0 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
     private static final class LocationTransformState {
