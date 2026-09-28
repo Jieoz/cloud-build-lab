@@ -14,6 +14,7 @@ import android.provider.OpenableColumns
 import android.view.MotionEvent
 import android.view.View
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -38,6 +39,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var slider: RangeSlider
     private lateinit var progress: ProgressBar
+    private lateinit var sbPlayback: SeekBar
+    private lateinit var tvPlayhead: TextView
+    private lateinit var tvVersion: TextView
+
+    // Whether the user is currently dragging the playback bar (suppress auto-updates).
+    private var scrubbing = false
 
     private lateinit var startNudges: List<MaterialButton>
     private lateinit var endNudges: List<MaterialButton>
@@ -83,6 +90,10 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         slider = findViewById(R.id.slider)
         progress = findViewById(R.id.progress)
+        sbPlayback = findViewById(R.id.sbPlayback)
+        tvPlayhead = findViewById(R.id.tvPlayhead)
+        tvVersion = findViewById(R.id.tvVersion)
+        tvVersion.text = "版本 ${BuildConfig.VERSION_NAME}"
 
         startNudges = listOf(
             findViewById(R.id.btnStartMinus1),
@@ -137,6 +148,23 @@ class MainActivity : AppCompatActivity() {
         btnPlay.setOnClickListener { previewSelection() }
         btnStop.setOnClickListener { stopPlayback() }
         btnCut.setOnClickListener { doCut() }
+
+        // Playback scrub bar: drag to jump anywhere inside the selection,
+        // e.g. straight to the end to check the tail without waiting.
+        sbPlayback.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, value: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val target = selStartMs + (selEndMs - selStartMs) * value / 1000
+                    tvPlayhead.text = "${formatMs(target)} / ${formatMs(selEndMs - selStartMs)}"
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar) { scrubbing = true }
+            override fun onStopTrackingTouch(sb: SeekBar) {
+                scrubbing = false
+                val target = selStartMs + (selEndMs - selStartMs) * sb.progress / 1000
+                runCatching { player?.seekTo(target.toInt()) }
+            }
+        })
     }
 
     private fun onFilePicked(uri: Uri) {
@@ -244,6 +272,9 @@ class MainActivity : AppCompatActivity() {
         val startMs = selStartMs
         val endMs = selEndMs
         stopPlayback()
+        sbPlayback.isEnabled = true
+        sbPlayback.progress = 0
+        tvPlayhead.text = "00:00.00 / ${formatMs(endMs - startMs)}"
         val mp = MediaPlayer()
         player = mp
         try {
@@ -273,11 +304,22 @@ class MainActivity : AppCompatActivity() {
                     // `player === mp` alone is a TOCTOU check — a release can land
                     // between the check and the call, so calls that would touch a
                     // released player are wrapped and end the loop on failure.
+                    val selSpan = (endMs - startMs).coerceAtLeast(1L)
                     while (player === mp) {
-                        val keepGoing = runCatching {
-                            mp.isPlaying && mp.currentPosition < endMs
-                        }.getOrDefault(false)
-                        if (!keepGoing) break
+                        val pos = runCatching {
+                            if (mp.isPlaying) mp.currentPosition.toLong() else -1L
+                        }.getOrDefault(-2L)
+                        if (pos == -2L) break            // player gone
+                        if (pos < 0 || pos >= endMs) break // stopped or reached end
+                        runOnUiThread {
+                            if (player === mp && !scrubbing) {
+                                val permille = (((pos - startMs) * 1000L) / selSpan)
+                                    .toInt().coerceIn(0, 1000)
+                                sbPlayback.progress = permille
+                                tvPlayhead.text =
+                                    "${formatMs(pos - startMs)} / ${formatMs(selSpan)}"
+                            }
+                        }
                         Thread.sleep(50)
                     }
                     if (player === mp) runOnUiThread { if (player === mp) stopPlayback() }
@@ -299,6 +341,7 @@ class MainActivity : AppCompatActivity() {
             runCatching { it.release() }
         }
         btnStop.isEnabled = false
+        sbPlayback.isEnabled = false
     }
 
     private fun doCut() {

@@ -11,8 +11,12 @@ android {
         applicationId "com.jieoz.audiocutter"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        versionCode ((System.getenv("APP_VERSION_CODE") ?: "1") as int)
+        versionName System.getenv("APP_VERSION_NAME") ?: "dev"
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     def keystorePath = System.getenv("PGP_KEYSTORE_PATH")

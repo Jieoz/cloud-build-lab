@@ -63,12 +63,19 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
           test -s "$RUNNER_TEMP/release.jks"
 
+      - name: Compute version
+        run: |
+          echo "APP_VERSION_NAME=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+          echo "APP_VERSION_CODE=$(date +'%y%m%d%H%M')" >> $GITHUB_ENV
+
       - name: Build debug APK
         env:
           PGP_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           PGP_KEYSTORE_PASSWORD: ${{ secrets.XVC_KEYSTORE_PASSWORD }}
           PGP_KEY_ALIAS: ${{ secrets.XVC_KEY_ALIAS }}
           PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
+          APP_VERSION_NAME: ${{ env.APP_VERSION_NAME }}
+          APP_VERSION_CODE: ${{ env.APP_VERSION_CODE }}
         run: gradle --no-daemon assembleDebug
 
       - name: Verify APK is signed with the fixed key

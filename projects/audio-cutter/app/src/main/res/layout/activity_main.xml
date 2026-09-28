@@ -17,6 +17,15 @@
             android:text="选择音频文件" />
 
         <TextView
+            android:id="@+id/tvVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="版本 --"
+            android:textSize="11sp"
+            android:alpha="0.5" />
+
+        <TextView
             android:id="@+id/tvFile"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -271,6 +280,24 @@
                 android:enabled="false"
                 android:text="停止" />
         </LinearLayout>
+
+        <!-- 播放进度：拖动可跳转到选段任意位置（比如直接跳到结尾试听） -->
+        <SeekBar
+            android:id="@+id/sbPlayback"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:max="1000" />
+
+        <TextView
+            android:id="@+id/tvPlayhead"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="00:00.00 / 00:00.00"
+            android:textSize="12sp"
+            android:alpha="0.7" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCut"
