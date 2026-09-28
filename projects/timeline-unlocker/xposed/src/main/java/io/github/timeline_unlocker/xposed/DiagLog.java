@@ -32,6 +32,7 @@ import de.robv.android.xposed.XposedBridge;
 public final class DiagLog {
 
     static final String DIR_NAME = "TimelineUnlocker";
+    static final String PREFS = "timeline_unlocker";
     static final String KEY_ENABLED = "log_enabled";
     private static final String TAG = "TimelineUnlocker-X";
     private static final String MIME = "text/plain";
@@ -48,19 +49,53 @@ public final class DiagLog {
     private DiagLog() {}
 
     public static boolean isEnabled(Context context) {
-        return readFlag(flagFile());
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ENABLED, false);
     }
 
     public static void setEnabled(Context context, boolean value) {
-        File file = flagFile();
-        File parent = file.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IllegalStateException("cannot create " + parent.getAbsolutePath());
+        boolean written = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_ENABLED, value)
+                .commit();
+        if (!written) throw new IllegalStateException("preference commit failed");
+        publish(context);
+    }
+
+    /** XSharedPreferences can only read this file when the module data dir is world-readable. */
+    private static void publish(Context context) {
+        String pkg = context.getPackageName();
+        File data = new File("/data/data/" + pkg);
+        data.setExecutable(true, false);
+        data.setReadable(true, false);
+        File prefs = new File(data, "shared_prefs");
+        if (prefs.exists()) {
+            prefs.setExecutable(true, false);
+            prefs.setReadable(true, false);
         }
-        try (FileOutputStream fos = new FileOutputStream(file, false)) {
-            fos.write(value ? new byte[]{'1'} : new byte[]{'0'});
-        } catch (Exception e) {
-            throw new IllegalStateException("cannot write " + file.getAbsolutePath(), e);
+        File file = new File(prefs, PREFS + ".xml");
+        if (file.exists()) file.setReadable(true, false);
+    }
+
+    public static void bind(Context context) {
+        if (context == null) return;
+        appContext = context;
+        enabled = readHost(context);
+        if (!enabled) return;
+        ensureWriter();
+        line("log file: " + displayPath());
+        flushAsync();
+    }
+
+    static boolean readHost(Context context) {
+        try {
+            de.robv.android.xposed.XSharedPreferences prefs =
+                    new de.robv.android.xposed.XSharedPreferences(context.getPackageName(), PREFS);
+            prefs.makeWorldReadable();
+            prefs.reload();
+            return prefs.getBoolean(KEY_ENABLED, false);
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -83,33 +118,9 @@ public final class DiagLog {
         flushAsync();
     }
 
-    public static void bind(Context context) {
-        if (context == null) return;
-        appContext = context;
-        enabled = readFlag(flagFile());
-        if (!enabled) return;
-        ensureWriter();
-        line("log file: " + displayPath());
-        flushAsync();
-    }
-
     static String fileName(String packageName) {
         String day = new SimpleDateFormat("yyyyMMdd", Locale.US).format(new Date());
         return "timeline-" + safe(packageName) + "-" + day + "-" + sessionSuffix + ".txt";
-    }
-
-    private static File flagFile() {
-        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        return new File(new File(downloads, DIR_NAME), KEY_ENABLED);
-    }
-
-    private static boolean readFlag(File file) {
-        if (file == null || !file.isFile()) return false;
-        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
-            return in.read() == '1';
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private static void flushAsync() {
