@@ -78,7 +78,7 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "apk=$APK build-tools=$BT"
           ENTRY=$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')
-          test "$ENTRY" = "balti.xposed.pixelifygooglephotos.lsp102.PixelifyModule"
+          test "$ENTRY" = "balti.xposed.pixelifygooglephotos.PixelifyModule"
           PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
           printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
           printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
@@ -95,7 +95,7 @@ jobs:
             echo "::error::legacy xposed meta-data survived packaging"; exit 1
           fi
           BADGE=$("$BT/aapt" dump badging "$APK")
-          echo "$BADGE" | grep -q "package: name='balti.xposed.pixelifygooglephotos.lsp102'"
+          echo "$BADGE" | grep -q "package: name='balti.xposed.pixelifygooglephotos'"
           echo "$BADGE" | grep -q "application-label:'Pixelify GPhotos'"
           echo "libxposed contract OK: $ENTRY package=lsp102 scope=$SCOPE"
 
