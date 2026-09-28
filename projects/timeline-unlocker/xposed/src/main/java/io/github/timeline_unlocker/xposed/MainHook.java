@@ -56,6 +56,7 @@ public class MainHook implements IXposedHookLoadPackage {
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
+            hookSatelliteRegion(cl);
         }
     }
 
@@ -189,6 +190,31 @@ public class MainHook implements IXposedHookLoadPackage {
         private boolean inHook;
     }
 
+    private void hookSatelliteRegion(ClassLoader cl) {
+        XC_MethodHook hook = new XC_MethodHook() {
+            private boolean busy;
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                if (busy || param.args.length == 0 || !(param.args[0] instanceof String)) return;
+                String url = (String) param.args[0];
+                String lower = url.toLowerCase(java.util.Locale.US);
+                if (!lower.contains("khms") && !lower.contains("/vt/lyrs=s")) return;
+                if (lower.contains("gl=cn")) return;
+                param.args[0] = url + (url.contains("?") ? "&" : "?") + "gl=cn";
+                log("satellite region %s", param.args[0]);
+            }
+        };
+        int hooked = 0;
+        for (java.lang.reflect.Constructor<?> ctor : java.net.URL.class.getDeclaredConstructors()) {
+            Class<?>[] types = ctor.getParameterTypes();
+            if (types.length > 0 && types[0] == String.class) {
+                XposedBridge.hookMethod(ctor, hook);
+                hooked++;
+            }
+        }
+        log("hooked %d URL constructor(s) for satellite region", hooked);
+    }
+
     private static XC_MethodReplacement constReplacement(final Object value) {
         return new XC_MethodReplacement() {
             @Override
@@ -210,9 +236,6 @@ public class MainHook implements IXposedHookLoadPackage {
         // 这些方法可能存在多种重载（无参 / int subId / String callingPackage 等）
         // 用 hookAllMethods 一网打尽，每个都返回伪造值。
         hookAllReturning(tm, "getSimCountryIso", FAKE_ISO);
-        hookAllReturning(tm, "getSimOperator", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
-        hookAllReturning(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
         hookAllReturning(tm, "getSimCountryIsoForPhone", FAKE_ISO);
     }
 
@@ -224,11 +247,6 @@ public class MainHook implements IXposedHookLoadPackage {
             log("SubscriptionInfo not found: %s", t);
             return;
         }
-
-        hookAllReturning(subInfo, "getMccString", "310");
-        hookAllReturning(subInfo, "getMncString", "030");
-        hookAllReturning(subInfo, "getMcc", FAKE_MCC);
-        hookAllReturning(subInfo, "getMnc", FAKE_MNC);
     }
 
     private void hookAllReturning(Class<?> clazz, String name, Object value) {
