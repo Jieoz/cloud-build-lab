@@ -56,7 +56,7 @@ public class MainHook implements IXposedHookLoadPackage {
         // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
-            hookSatelliteRegion(cl);
+            hookUrlStrings(cl);
         }
     }
 
@@ -190,22 +190,42 @@ public class MainHook implements IXposedHookLoadPackage {
         private boolean inHook;
     }
 
-    private void hookSatelliteRegion(ClassLoader cl) {
-        Class<?> urlConnection;
-        try {
-            urlConnection = XposedHelpers.findClass("com.android.okhttp.internal.huc.HttpURLConnectionImpl", cl);
-        } catch (Throwable t) {
-            log("okhttp connection not found: %s", t);
-            return;
-        }
-        XposedBridge.hookAllConstructors(urlConnection, new XC_MethodHook() {
+    private void hookUrlStrings(ClassLoader cl) {
+        XC_MethodHook watch = new XC_MethodHook() {
             @Override
-            protected void afterHookedMethod(MethodHookParam param) {
-                Object url = param.args.length > 0 ? param.args[0] : null;
-                log("http url %s", url);
+            protected void beforeHookedMethod(MethodHookParam param) {
+                for (Object arg : param.args) {
+                    if (!(arg instanceof String)) continue;
+                    String value = (String) arg;
+                    if (value.startsWith("http://") || value.startsWith("https://")) {
+                        log("url arg %s", value.length() > 300 ? value.substring(0, 300) : value);
+                    }
+                }
             }
-        });
-        log("recording okhttp urls, requests unchanged");
+        };
+        int methods = 0;
+        try {
+            java.lang.reflect.Field classes = ClassLoader.class.getDeclaredField("classes");
+            classes.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.Vector<Class<?>> loaded = (java.util.Vector<Class<?>>) classes.get(cl);
+            Class<?>[] snapshot = loaded.toArray(new Class<?>[0]);
+            for (Class<?> type : snapshot) {
+                if (type.getName().startsWith("java.") || type.getName().startsWith("android.")) continue;
+                for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+                    boolean takesString = false;
+                    for (Class<?> parameter : method.getParameterTypes()) {
+                        if (parameter == String.class) takesString = true;
+                    }
+                    if (!takesString) continue;
+                    XposedBridge.hookMethod(method, watch);
+                    methods++;
+                }
+            }
+        } catch (Throwable t) {
+            log("url scan failed: %s", t);
+        }
+        log("watching %d map methods for urls, requests unchanged", methods);
     }
 
     private static XC_MethodReplacement constReplacement(final Object value) {
