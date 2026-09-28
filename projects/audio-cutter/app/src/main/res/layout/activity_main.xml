@@ -44,10 +44,209 @@
             android:valueTo="1000.0"
             android:stepSize="0.0" />
 
+        <TextView
+            android:id="@+id/tvWindow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="显示范围：全曲"
+            android:textSize="12sp"
+            android:alpha="0.7" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnZoom"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:textSize="13sp"
+                android:text="放大到选段" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnZoomReset"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:textSize="13sp"
+                android:text="复位全曲" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="精细调整"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <!-- 开始点微调 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="开始"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartMinus1"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="-1s" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartMinus01"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="-.1s" />
+
+            <TextView
+                android:id="@+id/tvStart"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.6"
+                android:gravity="center"
+                android:text="--"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartPlus01"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="+.1s" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStartPlus1"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="+1s" />
+        </LinearLayout>
+
+        <!-- 结束点微调 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="40dp"
+                android:layout_height="wrap_content"
+                android:text="结束"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEndMinus1"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="-1s" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEndMinus01"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="-.1s" />
+
+            <TextView
+                android:id="@+id/tvEnd"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.6"
+                android:gravity="center"
+                android:text="--"
+                android:textSize="14sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEndPlus01"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="+.1s" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEndPlus1"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:insetLeft="0dp" android:insetRight="0dp"
+                android:paddingLeft="0dp" android:paddingRight="0dp"
+                android:minWidth="0dp"
+                android:textSize="12sp"
+                android:text="+1s" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
             android:orientation="horizontal">
 
             <com.google.android.material.button.MaterialButton

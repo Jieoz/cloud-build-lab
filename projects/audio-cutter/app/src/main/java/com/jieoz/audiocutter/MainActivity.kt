@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.view.MotionEvent
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -27,16 +28,35 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPlay: MaterialButton
     private lateinit var btnStop: MaterialButton
     private lateinit var btnCut: MaterialButton
+    private lateinit var btnZoom: MaterialButton
+    private lateinit var btnZoomReset: MaterialButton
     private lateinit var tvFile: TextView
     private lateinit var tvRange: TextView
+    private lateinit var tvWindow: TextView
+    private lateinit var tvStart: TextView
+    private lateinit var tvEnd: TextView
     private lateinit var tvStatus: TextView
     private lateinit var slider: RangeSlider
     private lateinit var progress: ProgressBar
+
+    private lateinit var startNudges: List<MaterialButton>
+    private lateinit var endNudges: List<MaterialButton>
 
     private var sourceUri: Uri? = null
     private var displayName: String = "audio"
     private var durationMs: Long = 0L
     private var player: MediaPlayer? = null
+
+    // Absolute selection (source of truth), in ms.
+    private var selStartMs: Long = 0L
+    private var selEndMs: Long = 0L
+
+    // Visible window the slider maps onto (zoom). Full track by default.
+    private var winStartMs: Long = 0L
+    private var winEndMs: Long = 0L
+
+    // Guards the slider listener against feedback loops during programmatic sync.
+    private var syncing = false
 
     private val io = Executors.newSingleThreadExecutor()
 
@@ -53,17 +73,67 @@ class MainActivity : AppCompatActivity() {
         btnPlay = findViewById(R.id.btnPlay)
         btnStop = findViewById(R.id.btnStop)
         btnCut = findViewById(R.id.btnCut)
+        btnZoom = findViewById(R.id.btnZoom)
+        btnZoomReset = findViewById(R.id.btnZoomReset)
         tvFile = findViewById(R.id.tvFile)
         tvRange = findViewById(R.id.tvRange)
+        tvWindow = findViewById(R.id.tvWindow)
+        tvStart = findViewById(R.id.tvStart)
+        tvEnd = findViewById(R.id.tvEnd)
         tvStatus = findViewById(R.id.tvStatus)
         slider = findViewById(R.id.slider)
         progress = findViewById(R.id.progress)
 
-        btnPick.setOnClickListener {
-            pickAudio.launch(arrayOf("audio/*"))
+        startNudges = listOf(
+            findViewById(R.id.btnStartMinus1),
+            findViewById(R.id.btnStartMinus01),
+            findViewById(R.id.btnStartPlus01),
+            findViewById(R.id.btnStartPlus1),
+        )
+        endNudges = listOf(
+            findViewById(R.id.btnEndMinus1),
+            findViewById(R.id.btnEndMinus01),
+            findViewById(R.id.btnEndPlus01),
+            findViewById(R.id.btnEndPlus1),
+        )
+
+        btnPick.setOnClickListener { pickAudio.launch(arrayOf("audio/*")) }
+
+        // Keep the ScrollView from stealing the horizontal drag from the slider,
+        // so a tap or drag on the bar always reaches the thumbs.
+        slider.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN ->
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false // let the slider handle the touch itself
         }
 
-        slider.addOnChangeListener { _, _, _ -> updateRangeLabel() }
+        slider.addOnChangeListener { _, _, fromUser ->
+            if (syncing || !fromUser) return@addOnChangeListener
+            val v = slider.values
+            if (v.size == 2) {
+                selStartMs = permilleToMs(v[0])
+                selEndMs = permilleToMs(v[1])
+                refreshLabels()
+            }
+        }
+
+        // Fine nudges: adjust the absolute selection by a fixed delta, clamped.
+        findViewById<MaterialButton>(R.id.btnStartMinus1).setOnClickListener { nudgeStart(-1000) }
+        findViewById<MaterialButton>(R.id.btnStartMinus01).setOnClickListener { nudgeStart(-100) }
+        findViewById<MaterialButton>(R.id.btnStartPlus01).setOnClickListener { nudgeStart(100) }
+        findViewById<MaterialButton>(R.id.btnStartPlus1).setOnClickListener { nudgeStart(1000) }
+        findViewById<MaterialButton>(R.id.btnEndMinus1).setOnClickListener { nudgeEnd(-1000) }
+        findViewById<MaterialButton>(R.id.btnEndMinus01).setOnClickListener { nudgeEnd(-100) }
+        findViewById<MaterialButton>(R.id.btnEndPlus01).setOnClickListener { nudgeEnd(100) }
+        findViewById<MaterialButton>(R.id.btnEndPlus1).setOnClickListener { nudgeEnd(1000) }
+
+        btnZoom.setOnClickListener { zoomToSelection() }
+        btnZoomReset.setOnClickListener { resetWindow() }
+
         btnPlay.setOnClickListener { previewSelection() }
         btnStop.setOnClickListener { stopPlayback() }
         btnCut.setOnClickListener { doCut() }
@@ -86,37 +156,93 @@ class MainActivity : AppCompatActivity() {
         }
 
         tvFile.text = "$displayName  (${formatMs(durationMs)})"
-        // Slider runs on a fixed 0..1000 permille scale (see XML). Binding it directly
-        // to raw millisecond floats loses precision on long tracks and makes the two
-        // thumbs cross by a sub-pixel sliver mid-drag, which throws in validateValues
-        // and hard-crashes. Keep the slider range constant; map to ms in code.
-        slider.setValues(0f, 1000f)
-        slider.isEnabled = true
-        btnPlay.isEnabled = true
-        btnCut.isEnabled = true
+        selStartMs = 0L
+        selEndMs = durationMs
+        winStartMs = 0L
+        winEndMs = durationMs
+
+        enableControls(true)
+        syncSliderFromSelection()
+        refreshLabels()
         tvStatus.text = ""
-        updateRangeLabel()
     }
 
-    private fun updateRangeLabel() {
-        val v = slider.values
-        if (v.size == 2) {
-            val startMs = permilleToMs(v[0])
-            val endMs = permilleToMs(v[1])
-            tvRange.text = "保留区间：${formatMs(startMs)} — ${formatMs(endMs)}" +
-                    "  (共 ${formatMs(endMs - startMs)})"
+    // ---- selection <-> slider mapping (within the current zoom window) ----
+
+    /** Maps a 0..1000 permille slider position to absolute ms inside the window. */
+    private fun permilleToMs(permille: Float): Long {
+        val span = (winEndMs - winStartMs).coerceAtLeast(1L)
+        return (winStartMs + permille / 1000f * span).toLong().coerceIn(0L, durationMs)
+    }
+
+    /** Maps an absolute ms position to 0..1000 permille inside the window. */
+    private fun msToPermille(ms: Long): Float {
+        val span = (winEndMs - winStartMs).coerceAtLeast(1L)
+        return ((ms - winStartMs).toFloat() / span * 1000f).coerceIn(0f, 1000f)
+    }
+
+    private fun syncSliderFromSelection() {
+        syncing = true
+        val lo = msToPermille(selStartMs)
+        val hi = msToPermille(selEndMs)
+        // Guarantee strictly ordered, in-range values to avoid RangeSlider validation crash.
+        val a = lo.coerceIn(0f, 1000f)
+        val b = hi.coerceIn(0f, 1000f)
+        slider.setValues(minOf(a, b), maxOf(a, b))
+        syncing = false
+    }
+
+    private fun nudgeStart(deltaMs: Long) {
+        // Keep at least 100ms selection; don't cross the end.
+        selStartMs = (selStartMs + deltaMs).coerceIn(0L, selEndMs - 100)
+        syncSliderFromSelection()
+        refreshLabels()
+    }
+
+    private fun nudgeEnd(deltaMs: Long) {
+        selEndMs = (selEndMs + deltaMs).coerceIn(selStartMs + 100, durationMs)
+        syncSliderFromSelection()
+        refreshLabels()
+    }
+
+    private fun zoomToSelection() {
+        val sel = selEndMs - selStartMs
+        if (sel <= 0) return
+        // Pad the window by 15% on each side so both handles stay reachable.
+        val pad = (sel * 0.15f).toLong().coerceAtLeast(200L)
+        winStartMs = (selStartMs - pad).coerceAtLeast(0L)
+        winEndMs = (selEndMs + pad).coerceAtMost(durationMs)
+        if (winEndMs - winStartMs < 300) { // guard against a degenerate window
+            winStartMs = (selStartMs - 200).coerceAtLeast(0L)
+            winEndMs = (selEndMs + 200).coerceAtMost(durationMs)
+        }
+        syncSliderFromSelection()
+        refreshLabels()
+    }
+
+    private fun resetWindow() {
+        winStartMs = 0L
+        winEndMs = durationMs
+        syncSliderFromSelection()
+        refreshLabels()
+    }
+
+    private fun refreshLabels() {
+        tvRange.text = "保留区间：${formatMs(selStartMs)} — ${formatMs(selEndMs)}" +
+                "  (共 ${formatMs(selEndMs - selStartMs)})"
+        tvStart.text = formatMs(selStartMs)
+        tvEnd.text = formatMs(selEndMs)
+        tvWindow.text = if (winStartMs == 0L && winEndMs == durationMs) {
+            "显示范围：全曲"
+        } else {
+            "显示范围：${formatMs(winStartMs)} — ${formatMs(winEndMs)}（已放大，拖动更精细）"
         }
     }
 
-    /** Maps a 0..1000 permille slider position to milliseconds in the current track. */
-    private fun permilleToMs(permille: Float): Long =
-        (permille / 1000f * durationMs).toLong().coerceIn(0L, durationMs)
-
     private fun previewSelection() {
         val uri = sourceUri ?: return
-        val v = slider.values
-        val startMs = permilleToMs(v[0])
-        val endMs = permilleToMs(v[1])
+        val startMs = selStartMs
+        val endMs = selEndMs
         stopPlayback()
         val mp = MediaPlayer()
         player = mp
@@ -150,9 +276,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun doCut() {
         val uri = sourceUri ?: return
-        val v = slider.values
-        val startUs = permilleToMs(v[0]) * 1000
-        val endUs = permilleToMs(v[1]) * 1000
+        val startUs = selStartMs * 1000
+        val endUs = selEndMs * 1000
         if (endUs - startUs < 100_000) {
             tvStatus.text = "选段太短（至少 0.1 秒）"
             return
@@ -215,12 +340,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun enableControls(on: Boolean) {
+        slider.isEnabled = on
+        btnPlay.isEnabled = on
+        btnCut.isEnabled = on
+        btnZoom.isEnabled = on
+        btnZoomReset.isEnabled = on
+        (startNudges + endNudges).forEach { it.isEnabled = on }
+    }
+
     private fun setBusy(busy: Boolean) {
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         btnPick.isEnabled = !busy
-        btnCut.isEnabled = !busy
-        btnPlay.isEnabled = !busy
-        slider.isEnabled = !busy
+        enableControls(!busy)
     }
 
     private fun queryName(uri: Uri): String {
