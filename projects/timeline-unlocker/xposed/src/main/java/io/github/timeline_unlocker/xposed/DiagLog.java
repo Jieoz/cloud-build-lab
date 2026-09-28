@@ -75,30 +75,6 @@ public final class DiagLog {
 
     public static void setEnabled(Context context, boolean value) {
         enabled = value;
-        if (context == null || Build.VERSION.SDK_INT < 29) return;
-        try {
-            ContentResolver resolver = context.getContentResolver();
-            Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-            String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-            String name = "module-" + versionName(context) + ".txt";
-            Uri existing = findRow(resolver, collection, relative, name);
-            if (existing != null) resolver.delete(existing, null, null);
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-            values.put(MediaStore.MediaColumns.MIME_TYPE, MIME);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, relative);
-            Uri uri = resolver.insert(collection, values);
-            if (uri == null) return;
-            OutputStream out = resolver.openOutputStream(uri, "wt");
-            if (out == null) return;
-            try {
-                out.write((stamp() + " module switch " + (value ? "on" : "off")
-                        + " " + versionName(context) + "\n").getBytes(StandardCharsets.UTF_8));
-            } finally {
-                out.close();
-            }
-        } catch (Throwable ignored) {
-        }
     }
 
     private static String versionName(Context context) {

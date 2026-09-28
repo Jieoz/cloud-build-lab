@@ -228,7 +228,9 @@ public class MainHook implements IXposedHookLoadPackage {
                     int end = text.indexOf(';', start);
                     if (start >= 0 && end > start && end - start < 180 && from - start < 160) {
                         String raw = text.substring(start + 1, end).replace('/', '.');
-                        if (!raw.startsWith("java.") && !raw.startsWith("android.") && raw.indexOf('.') > 0) names.add(raw);
+                        if (!raw.matches("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+")) continue;
+                        if (raw.startsWith("java.") || raw.startsWith("android.") || raw.startsWith("okhttp3.")) continue;
+                        names.add(raw);
                     }
                     from += 4;
                 }
