@@ -30,7 +30,7 @@ class PixelifyModule : XposedModule() {
                 HookBridge.Before { call ->
                     val app = call.chainThis as? Application ?: return@Before
                     DebugLog.bind(app)
-                    DebugLog.line("application onCreate ${param.packageName}", always = true)
+                    DebugLog.line("application onCreate ${param.packageName}")
                 }
             )
         }.onFailure {
@@ -39,11 +39,11 @@ class PixelifyModule : XposedModule() {
         val logOn = try {
             ModulePrefs.remote()?.getBoolean(Constants.PREF_ENABLE_VERBOSE_LOGS, false) ?: false
         } catch (t: Throwable) {
-            DebugLog.line("log switch read failed ${t.javaClass.simpleName}: ${t.message}", always = true)
+            DebugLog.line("log switch read failed ${t.javaClass.simpleName}: ${t.message}")
             false
         }
         DebugLog.setEnabled(logOn)
-        DebugLog.line("package ready ${param.packageName} logSwitch=$logOn", always = true)
+        DebugLog.line("package ready ${param.packageName} logSwitch=$logOn")
         FeatureSpoofer.install(param)
         DeviceSpoofer.install(param)
     }
