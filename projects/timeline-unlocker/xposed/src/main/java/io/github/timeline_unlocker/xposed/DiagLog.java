@@ -81,7 +81,10 @@ public final class DiagLog {
         if (context == null) return;
         appContext = context;
         enabled = readHost(context);
-        if (!enabled) return;
+        if (!enabled) {
+            recordClosed(context, "switch off or unreadable");
+            return;
+        }
         ensureWriter();
         line("log file: " + displayPath());
         flushAsync();
@@ -90,12 +93,22 @@ public final class DiagLog {
     static boolean readHost(Context context) {
         try {
             de.robv.android.xposed.XSharedPreferences prefs =
-                    new de.robv.android.xposed.XSharedPreferences(context.getPackageName(), PREFS);
+                    new de.robv.android.xposed.XSharedPreferences(BuildConfig.APPLICATION_ID, PREFS);
             prefs.makeWorldReadable();
             prefs.reload();
             return prefs.getBoolean(KEY_ENABLED, false);
         } catch (Throwable t) {
+            recordClosed(context, "prefs unreadable: " + t.getClass().getSimpleName());
             return false;
+        }
+    }
+
+    private static void recordClosed(Context context, String reason) {
+        if (context == null) return;
+        try {
+            String text = stamp() + " " + context.getPackageName() + " " + reason;
+            appendMediaStore(context, text);
+        } catch (Throwable ignored) {
         }
     }
 
