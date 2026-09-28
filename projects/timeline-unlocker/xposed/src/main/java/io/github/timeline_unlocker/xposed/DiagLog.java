@@ -48,10 +48,14 @@ public final class DiagLog {
     private DiagLog() {}
 
     public static boolean isEnabled(Context context) {
-        return new File(flagDir(), FLAG_NAME).exists();
+        return readHost(context);
     }
 
     public static void setEnabled(Context context, boolean value) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            setEnabledMediaStore(context, value);
+            return;
+        }
         File dir = flagDir();
         if (!dir.exists() && !dir.mkdirs()) {
             throw new IllegalStateException("cannot create " + dir.getAbsolutePath());
@@ -65,6 +69,32 @@ public final class DiagLog {
             }
         } else if (flag.exists() && !flag.delete()) {
             throw new IllegalStateException("cannot remove " + flag.getAbsolutePath());
+        }
+    }
+
+    private static void setEnabledMediaStore(Context context, boolean value) {
+        ContentResolver resolver = context.getContentResolver();
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
+        Uri existing = findRow(resolver, collection, relative, FLAG_NAME);
+        if (!value) {
+            if (existing != null) resolver.delete(existing, null, null);
+            return;
+        }
+        Uri uri = existing;
+        if (uri == null) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, FLAG_NAME);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, MIME);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, relative);
+            uri = resolver.insert(collection, values);
+        }
+        if (uri == null) throw new IllegalStateException("cannot insert log.on");
+        try (OutputStream out = resolver.openOutputStream(uri, "wt")) {
+            if (out == null) throw new IllegalStateException("cannot open log.on");
+            out.write(new byte[]{'1'});
+        } catch (Throwable t) {
+            throw new IllegalStateException(t.getMessage());
         }
     }
 
@@ -82,6 +112,16 @@ public final class DiagLog {
     }
 
     static boolean readHost(Context context) {
+        if (context != null && Build.VERSION.SDK_INT >= 29) {
+            try {
+                ContentResolver resolver = context.getContentResolver();
+                Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
+                return findRow(resolver, collection, relative, FLAG_NAME) != null;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
         return new File(flagDir(), FLAG_NAME).exists();
     }
 
@@ -154,30 +194,29 @@ public final class DiagLog {
         }
     }
 
+    private static Uri findRow(ContentResolver resolver, Uri collection, String relative, String name) {
+        android.database.Cursor cursor = resolver.query(
+                collection,
+                new String[]{MediaStore.MediaColumns._ID},
+                MediaStore.MediaColumns.RELATIVE_PATH + "=? AND " + MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                new String[]{relative, name},
+                null);
+        if (cursor == null) return null;
+        try {
+            if (!cursor.moveToFirst()) return null;
+            return ContentUris.withAppendedId(collection, cursor.getLong(0));
+        } finally {
+            cursor.close();
+        }
+    }
+
     private static boolean appendMediaStore(Context context, byte[] bytes) {
         try {
             ContentResolver resolver = context.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
             String name = fileName(context.getPackageName());
             String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-            Uri uri = rowUri;
-            if (uri == null) {
-                android.database.Cursor cursor = resolver.query(
-                        collection,
-                        new String[]{MediaStore.MediaColumns._ID},
-                        MediaStore.MediaColumns.RELATIVE_PATH + "=? AND " + MediaStore.MediaColumns.DISPLAY_NAME + "=?",
-                        new String[]{relative, name},
-                        null);
-                if (cursor != null) {
-                    try {
-                        if (cursor.moveToFirst()) {
-                            uri = ContentUris.withAppendedId(collection, cursor.getLong(0));
-                        }
-                    } finally {
-                        cursor.close();
-                    }
-                }
-            }
+            Uri uri = rowUri != null ? rowUri : findRow(resolver, collection, relative, name);
             if (uri == null) {
                 ContentValues values = new ContentValues();
                 values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
