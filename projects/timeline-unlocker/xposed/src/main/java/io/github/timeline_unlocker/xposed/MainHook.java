@@ -24,8 +24,15 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String FAKE_ISO_SUBSCRIPTION = "US";
 
     private static void log(String fmt, Object... args) {
-        DiagLog.line(String.format(fmt, args));
+        String message = String.format(fmt, args);
+        synchronized (EARLY) {
+            if (EARLY.size() >= 200) EARLY.remove(0);
+            EARLY.add(message);
+        }
+        DiagLog.line(message);
     }
+
+    private static final java.util.List<String> EARLY = new java.util.ArrayList<>();
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
@@ -54,6 +61,14 @@ public class MainHook implements IXposedHookLoadPackage {
         }
     }
 
+    private static java.util.List<String> earlyLines() {
+        synchronized (EARLY) {
+            java.util.List<String> copy = new java.util.ArrayList<>(EARLY);
+            EARLY.clear();
+            return copy;
+        }
+    }
+
     private void bindLog(ClassLoader cl, String pkg) {
         try {
             XposedHelpers.findAndHookMethod(Application.class, "onCreate", new XC_MethodHook() {
@@ -62,6 +77,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     Context context = (Application) param.thisObject;
                     if (!pkg.equals(context.getPackageName())) return;
                     DiagLog.bind(context);
+                    for (String message : earlyLines()) DiagLog.line(message);
                 }
             });
         } catch (Throwable t) {
