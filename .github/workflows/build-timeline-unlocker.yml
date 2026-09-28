@@ -1,0 +1,95 @@
+name: Build Timeline Unlocker APK
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release and upload APK'
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - 'projects/timeline-unlocker/**'
+      - '.github/workflows/build-timeline-unlocker.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: projects/timeline-unlocker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SM"
+          yes | "$SM" --licenses >/dev/null || true
+          "$SM" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Prepare project for CI
+        run: |
+          rm -f local.properties
+          sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties || true
+          test -f settings.gradle.kts
+          test -f xposed/build.gradle.kts
+          test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/MainHook.java
+          test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/DiagLog.java
+          test -f xposed/src/main/java/io/github/timeline_unlocker/xposed/LogExportActivity.java
+
+      - name: Build debug APK
+        run: gradle --no-daemon :xposed:testDebugUnitTest :xposed:assembleDebug
+
+      - name: Dump failing test details
+        if: failure()
+        run: |
+          for f in xposed/build/test-results/testDebugUnitTest/*.xml; do
+            [ -f "$f" ] || continue
+            python3 - "$f" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          root = ET.parse(sys.argv[1]).getroot()
+          for case in root.iter('testcase'):
+              for bad in list(case.iter('failure')) + list(case.iter('error')):
+                  print(f"--- {case.get('classname')}.{case.get('name')}")
+                  print((bad.text or bad.get('message') or '').strip()[:2000])
+          PY
+          done
+
+      - name: Verify module contract
+        run: |
+          set -euo pipefail
+          APK=$(ls xposed/build/outputs/apk/debug/*.apk | head -1)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "apk=$APK"
+          test "$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')" = "io.github.timeline_unlocker.xposed.MainHook"
+          unzip -l "$APK" | grep -q 'io/github/timeline_unlocker/xposed/LogExportActivity.class'
+          unzip -l "$APK" | grep -q 'io/github/timeline_unlocker/xposed/DiagLog.class'
+          "$BT/aapt" dump badging "$APK" | grep -q "package: name='io.github.timeline_unlocker.xposed'"
+          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
+          grep -q 'LogExportActivity' /tmp/manifest.txt
+          grep -q 'xposedmodule' /tmp/manifest.txt
+          echo "module contract OK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: timeline-unlocker-debug-apk
+          path: projects/timeline-unlocker/xposed/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -46,6 +46,14 @@
       "artifactName": "pixelify-lsp102-debug-apk",
       "deliveryType": "apk",
       "releaseAssetPattern": "*.apk"
+    },
+    "timeline-unlocker": {
+      "kind": "android-apk",
+      "sourcePath": "projects/timeline-unlocker",
+      "workflow": "build-timeline-unlocker.yml",
+      "artifactName": "timeline-unlocker-debug-apk",
+      "deliveryType": "apk",
+      "releaseAssetPattern": "*.apk"
     }
   }
 }

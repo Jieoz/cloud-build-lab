@@ -1,0 +1,14 @@
+*.iml
+.gradle
+.idea
+.DS_Store
+build
+captures
+.externalNativeBuild
+.cxx
+local.properties
+.claude/settings.local.json
+
+# Reverse-engineering scratch dir (Maps APK dump)
+/maps_apks/
+/.mimosa/
