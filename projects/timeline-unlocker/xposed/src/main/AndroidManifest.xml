@@ -4,10 +4,6 @@
     <!-- Shared-UID read of Maps / GMS / GSF external session logs. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <permission
-        android:name="io.github.timeline_unlocker.xposed.LOG_SWITCH"
-        android:protectionLevel="normal" />
-    <uses-permission android:name="io.github.timeline_unlocker.xposed.LOG_SWITCH" />
 
     <application
         android:allowBackup="false"

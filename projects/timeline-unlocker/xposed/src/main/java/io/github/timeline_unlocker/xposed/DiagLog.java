@@ -69,6 +69,7 @@ public final class DiagLog {
             synchronized (LOCK) {
                 pending.clear();
             }
+            return;
         }
         flushAsync();
     }
@@ -89,9 +90,9 @@ public final class DiagLog {
         if (context == null) return;
         appContext = context;
         ensureWriter();
-        enabled = true;
+        enabled = readHost(context);
+        if (!enabled) return;
         line("log file: " + displayPath());
-        line("switch " + describeSwitch(context));
         flushAsync();
     }
 
@@ -134,17 +135,8 @@ public final class DiagLog {
     }
 
     static boolean readHost(Context context) {
-        if (context != null && Build.VERSION.SDK_INT >= 29) {
-            try {
-                ContentResolver resolver = context.getContentResolver();
-                Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-                String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-                return findRow(resolver, collection, relative, FLAG_NAME) != null;
-            } catch (Throwable ignored) {
-                return false;
-            }
-        }
-        return new File(flagDir(), FLAG_NAME).exists();
+        if (context == null) return false;
+        return new File(context.getFilesDir(), FLAG_NAME).exists();
     }
 
     private static File flagDir() {

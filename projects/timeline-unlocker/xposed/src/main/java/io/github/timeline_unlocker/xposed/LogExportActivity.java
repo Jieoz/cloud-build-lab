@@ -52,7 +52,6 @@ public class LogExportActivity extends Activity {
 
     private void onToggle(CompoundButton button, boolean checked) {
         try {
-            DiagLog.setEnabled(this, checked);
             android.content.Intent signal = new android.content.Intent(LogSwitchReceiver.ACTION);
             signal.setPackage("com.google.android.apps.maps");
             signal.putExtra("on", checked);
