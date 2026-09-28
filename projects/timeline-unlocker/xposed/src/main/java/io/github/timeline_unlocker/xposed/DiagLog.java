@@ -19,27 +19,44 @@ import de.robv.android.xposed.XposedBridge;
 /**
  * Diagnostic lines for the three hooked Google processes.
  *
- * Always mirrored to the LSPosed log. When a process Context is bound, the same
- * lines are also appended under that app's own external files directory, which
- * the module UI can read back because the three packages share this signature.
- * The queue is flushed after the feature hooks are installed, so a logging
- * failure cannot remove the telephony or coordinate hooks.
+ * The file sink is off until the module UI turns it on. While off, a line is one
+ * preference read and a return — it does not touch disk and does not keep a queue.
+ * While on, each host process writes its own file under Download/TimelineUnlocker.
+ * The module UI only merges those files; it never reads another app's private dir.
  */
 public final class DiagLog {
 
     static final String DIR_NAME = "TimelineUnlocker";
+    static final String KEY_ENABLED = "log_enabled";
     private static final String TAG = "TimelineUnlocker-X";
     private static final int MAX_QUEUED = 400;
 
     private static final Object LOCK = new Object();
     private static final List<String> pending = new ArrayList<>();
+    private static volatile boolean enabled;
     private static volatile Context appContext;
     private static volatile Handler writer;
     private static volatile String activeFile;
 
     private DiagLog() {}
 
+    public static boolean isEnabled(Context context) {
+        return readFlag(flagFile(context));
+    }
+
+    public static void setEnabled(Context context, boolean value) {
+        File file = flagFile(context);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        try (FileOutputStream fos = new FileOutputStream(file, false)) {
+            fos.write(value ? new byte[]{'1'} : new byte[]{'0'});
+        } catch (Exception e) {
+            throw new IllegalStateException("cannot write " + file.getAbsolutePath(), e);
+        }
+    }
+
     public static void line(String message) {
+        if (!enabled) return;
         String text = stamp() + " " + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
         try {
             XposedBridge.log("[" + TAG + "] " + text);
@@ -53,10 +70,16 @@ public final class DiagLog {
         flushAsync();
     }
 
-    /** Bind the host process context. Call only after the feature hooks are in place. */
+    /**
+     * Bind the host process context after the feature hooks are in place.
+     * The switch is read once here. Changing it needs a force-stop of Maps and
+     * Play services, or a reboot, before this process sees the new value.
+     */
     public static void bind(Context context) {
         if (context == null) return;
         appContext = context;
+        enabled = isEnabled(context);
+        if (!enabled) return;
         ensureWriter();
         line("log file: " + fileFor(context).getAbsolutePath());
         flushAsync();
@@ -68,8 +91,9 @@ public final class DiagLog {
     }
 
     /**
-     * Copies every session log this package can see into Download/TimelineUnlocker/.
-     * Runs in the module app, which shares the user id of Maps, GMS, and GSF.
+     * Merges session files already written into Download/TimelineUnlocker.
+     * Those files are created by Maps, GMS, and GSF. This method only reads the
+     * public download folder; it does not open another app's private directory.
      */
     public static File exportToDownloads(Context context) throws Exception {
         File outDir = exportDir();
@@ -80,41 +104,45 @@ public final class DiagLog {
                 + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date())
                 + ".txt";
         File out = new File(outDir, name);
+        File[] logs = outDir.listFiles((d, n) -> n.startsWith("session-") && n.endsWith(".txt"));
         StringBuilder body = new StringBuilder();
         body.append("Timeline Unlocker export\n");
         body.append("module ").append(context.getPackageName()).append('\n');
-        int files = 0;
-        int missing = 0;
-        for (String pkg : new String[]{
-                "com.google.android.apps.maps",
-                "com.google.android.gms",
-                "com.google.android.gsf"
-        }) {
-            File dir = sessionDir(context, pkg);
-            body.append("\n## ").append(pkg).append('\n');
-            body.append("dir ").append(dir.getAbsolutePath()).append('\n');
-            File[] logs = dir.listFiles((d, n) -> n.startsWith("session-") && n.endsWith(".txt"));
-            if (logs == null || logs.length == 0) {
-                body.append(dir.isDirectory() ? "(no session file)\n" : "(directory not readable)\n");
-                missing++;
-                continue;
-            }
+        body.append("switch ").append(isEnabled(context) ? "on" : "off").append('\n');
+        body.append("dir ").append(outDir.getAbsolutePath()).append('\n');
+        if (logs == null || logs.length == 0) {
+            body.append("\nNo session file in Download/").append(DIR_NAME)
+                    .append(". Turn the switch on, force-stop Maps and Play services, open Maps, then export again.\n");
+        } else {
             java.util.Arrays.sort(logs, (a, b) -> a.getName().compareTo(b.getName()));
             for (File log : logs) {
                 body.append("\n--- ").append(log.getName()).append(" (").append(log.length()).append(" bytes) ---\n");
                 body.append(readTail(log, 256 * 1024));
                 if (body.charAt(body.length() - 1) != '\n') body.append('\n');
-                files++;
             }
-        }
-        if (files == 0) {
-            body.append("\nNo host session was readable. Open Maps once after enabling the module, then export again.\n");
-            body.append("Unreadable package dirs: ").append(missing).append('\n');
         }
         try (FileOutputStream fos = new FileOutputStream(out, false)) {
             fos.write(body.toString().getBytes(StandardCharsets.UTF_8));
         }
         return out;
+    }
+
+    private static boolean readFlag(File file) {
+        if (file == null || !file.isFile()) return false;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+            int value = in.read();
+            return value == '1';
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Public flag. A private file of the module app is invisible to Maps, GMS,
+     * and GSF because the signatures differ. A missing file means off.
+     */
+    private static File flagFile(Context context) {
+        return new File(exportDir(), KEY_ENABLED);
     }
 
     private static void flushAsync() {
@@ -125,7 +153,7 @@ public final class DiagLog {
 
     private static void flushNow() {
         Context context = appContext;
-        if (context == null) return;
+        if (context == null || !enabled) return;
         List<String> batch;
         synchronized (LOCK) {
             if (pending.isEmpty()) return;
@@ -166,18 +194,15 @@ public final class DiagLog {
     private static File fileFor(Context context) {
         String known = activeFile;
         if (known != null) return new File(known);
-        File dir = new File(context.getExternalFilesDir(null), DIR_NAME);
         String name = "session-"
+                + safe(context.getPackageName()) + "-"
                 + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date())
                 + ".txt";
-        return new File(dir, name);
+        return new File(exportDir(), name);
     }
 
-    private static File sessionDir(Context context, String packageName) {
-        File mine = context.getExternalFilesDir(null);
-        if (mine == null) return new File("/unreadable/" + packageName);
-        String path = mine.getAbsolutePath().replace(context.getPackageName(), packageName);
-        return new File(path, DIR_NAME);
+    private static String safe(String packageName) {
+        return packageName.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     private static String readTail(File file, int maxBytes) throws Exception {
