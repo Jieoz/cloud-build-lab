@@ -45,14 +45,12 @@ public class MainHook implements IXposedHookLoadPackage {
 
         log("loading package: %s (process=%s)", pkg, lpparam.processName);
         ClassLoader cl = lpparam.classLoader;
-        hookTelephonyManager(cl);
-        hookSubscriptionInfo(cl);
-        hookSystemProperties(cl);
+        if (!"com.google.android.apps.maps".equals(pkg)) {
+            hookTelephonyManager(cl);
+            hookSubscriptionInfo(cl);
+            hookSystemProperties(cl);
+        }
 
-        // 只在 Maps 进程里给 Location 做 WGS-84 -> GCJ-02 转换，
-        // 修正"Maps 把国家当成 us 不再做坐标偏移"造成的小蓝点偏移。
-        // GMS / GSF 不应用此转换，它们的位置上传链路使用真实 WGS-84。
-        // 调试日志也只在地图进程写，改开关后只需要强停地图。
         if ("com.google.android.apps.maps".equals(pkg)) {
             bindLog(cl, pkg);
             hookSemanticLocationPoint(cl);
