@@ -7,22 +7,29 @@ final class DexTypes {
 
     private DexTypes() {}
 
-    static int countDescriptorContaining(byte[] dex, String needle) {
-        if (dex == null || dex.length < 0x74 || needle == null || needle.isEmpty()) return 0;
+    static java.util.List<String> descriptorsContaining(byte[] dex, String needle, int limit) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x74 || needle == null || needle.isEmpty() || limit <= 0) {
+            return found;
+        }
         int stringIds = u32(dex, 0x38);
         int stringOff = u32(dex, 0x3c);
         int typeIds = u32(dex, 0x40);
         int typeOff = u32(dex, 0x44);
-        if (stringIds < 0 || typeIds < 0) return 0;
-        int count = 0;
-        for (int i = 0; i < typeIds; i++) {
+        if (stringIds < 0 || typeIds < 0) return found;
+        for (int i = 0; i < typeIds && found.size() < limit; i++) {
             int typePos = typeOff + i * 4;
             if (typePos < 0 || typePos + 4 > dex.length) break;
             int descIdx = u32(dex, typePos);
             if (descIdx < 0 || descIdx >= stringIds) continue;
-            if (string(dex, stringOff, descIdx).contains(needle)) count++;
+            String desc = string(dex, stringOff, descIdx);
+            if (desc.contains(needle)) found.add(desc);
         }
-        return count;
+        return found;
+    }
+
+    static int countDescriptorContaining(byte[] dex, String needle) {
+        return descriptorsContaining(dex, needle, Integer.MAX_VALUE).size();
     }
 
     private static String string(byte[] dex, int stringIdsOff, int index) {

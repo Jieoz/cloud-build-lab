@@ -222,7 +222,7 @@ public class MainHook extends XposedModule {
      * screen that is still there. history = PlaceCandidate loaded; ui = a Timeline* class exists.
      */
     private void reportTimelineClasses(ClassLoader cl) {
-        int timeline = 0;
+        java.util.List<String> names = new java.util.ArrayList<>();
         int dex = 0;
         String apk = null;
         try {
@@ -237,25 +237,31 @@ public class MainHook extends XposedModule {
         if (apk != null) {
             try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
                 java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-                while (entries.hasMoreElements()) {
+                while (entries.hasMoreElements() && names.size() < 8) {
                     String entry = entries.nextElement().getName();
                     if (!entry.startsWith("classes") || !entry.endsWith(".dex")) continue;
                     dex++;
-                    timeline += DexTypes.countDescriptorContaining(readAll(zip.getInputStream(zip.getEntry(entry))), "Timeline");
+                    names.addAll(DexTypes.descriptorsContaining(
+                            readAll(zip.getInputStream(zip.getEntry(entry))), "Timeline", 8 - names.size()));
                 }
             } catch (Throwable t) {
                 log("timeline dex scan failed: %s", t.getClass().getSimpleName());
             }
         }
-        boolean history = false;
-        try {
-            cl.loadClass("com.google.android.gms.semanticlocation.PlaceCandidate$Point");
-            history = true;
-        } catch (Throwable ignored) {
-            history = false;
+        int loaded = 0;
+        for (String desc : names) {
+            String binary = desc.startsWith("L") && desc.endsWith(";")
+                    ? desc.substring(1, desc.length() - 1).replace('/', '.') : desc;
+            try {
+                cl.loadClass(binary);
+                loaded++;
+                log("timeline loaded: %s", binary);
+            } catch (Throwable t) {
+                log("timeline not-loaded: %s (%s)", binary, t.getClass().getSimpleName());
+            }
         }
-        log("timeline scan: dex=%d timeline-classes=%d history-point=%s apk=%s",
-                dex, timeline, history ? "present" : "absent", apk == null ? "unknown" : "ok");
+        log("timeline loaded %d/%d from %d dex apk=%s",
+                loaded, names.size(), dex, apk == null ? "unknown" : "ok");
     }
 
     private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {

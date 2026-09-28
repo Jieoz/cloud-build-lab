@@ -16,6 +16,7 @@ public class DexTypesTest {
                 new String[]{"LTimelineActivity;", "Timeline is a string", "LOther;"},
                 new int[]{0, 2});
         assertEquals(1, DexTypes.countDescriptorContaining(dex, "Timeline"));
+        assertEquals("LTimelineActivity;", DexTypes.descriptorsContaining(dex, "Timeline", 8).get(0));
     }
 
     @Test
