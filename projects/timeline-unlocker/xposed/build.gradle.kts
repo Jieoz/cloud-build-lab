@@ -61,6 +61,5 @@ android {
 
 dependencies {
     compileOnly(libs.xposed.api)
-    implementation("androidx.core:core:1.15.0")
     testImplementation(libs.junit)
 }
