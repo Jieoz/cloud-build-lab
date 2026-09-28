@@ -56,7 +56,7 @@ public class LogExportActivity extends Activity {
             android.content.Intent signal = new android.content.Intent(LogSwitchReceiver.ACTION);
             signal.setPackage("com.google.android.apps.maps");
             signal.putExtra("on", checked);
-            sendBroadcast(signal, "io.github.timeline_unlocker.xposed.LOG_SWITCH");
+            sendBroadcast(signal);
         } catch (Throwable t) {
             button.setChecked(!checked);
             Toast.makeText(this, "开关没写上: " + t.getMessage(), Toast.LENGTH_LONG).show();

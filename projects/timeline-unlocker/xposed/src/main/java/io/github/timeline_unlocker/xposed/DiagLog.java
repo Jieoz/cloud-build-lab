@@ -55,6 +55,15 @@ public final class DiagLog {
         enabled = value;
         Context context = appContext;
         if (context == null) return;
+        File flag = new File(context.getFilesDir(), "log-on.txt");
+        if (value) {
+            try (FileOutputStream out = new FileOutputStream(flag)) {
+                out.write(new byte[]{'1'});
+            } catch (Throwable ignored) {
+            }
+        } else if (flag.exists()) {
+            flag.delete();
+        }
         line(value ? "switch on" : "switch off");
         if (!value) {
             synchronized (LOCK) {
@@ -72,6 +81,7 @@ public final class DiagLog {
         if (context == null) return;
         appContext = context;
         ensureWriter();
+        enabled = new File(context.getFilesDir(), "log-on.txt").exists();
         if (!enabled) return;
         line("log file: " + displayPath());
         line("switch " + describeSwitch(context));
