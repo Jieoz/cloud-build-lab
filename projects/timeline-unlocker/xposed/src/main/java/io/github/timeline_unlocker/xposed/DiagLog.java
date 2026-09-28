@@ -105,14 +105,49 @@ public final class DiagLog {
     public static void bind(Context context) {
         if (context == null) return;
         appContext = context;
-        enabled = readHost(context);
-        if (!enabled) {
-            recordClosed(context, "switch off or unreadable");
-            return;
-        }
+        enabled = true;
         ensureWriter();
         line("log file: " + displayPath());
+        line("switch " + describeSwitch(context));
         flushAsync();
+    }
+
+    private static String describeSwitch(Context context) {
+        if (context == null) return "no context";
+        if (Build.VERSION.SDK_INT < 29) {
+            return new File(flagDir(), FLAG_NAME).exists() ? "file present" : "file absent";
+        }
+        try {
+            ContentResolver resolver = context.getContentResolver();
+            Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
+            android.database.Cursor cursor = resolver.query(
+                    collection,
+                    new String[]{MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH},
+                    MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?",
+                    new String[]{Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "%"},
+                    null);
+            int rows = 0;
+            StringBuilder names = new StringBuilder();
+            if (cursor != null) {
+                try {
+                    while (cursor.moveToNext() && rows < 8) {
+                        rows++;
+                        names.append(' ').append(cursor.getString(0));
+                    }
+                } finally {
+                    cursor.close();
+                }
+            }
+            boolean hit = findRow(resolver, collection, relative, FLAG_NAME) != null;
+            return "sdk " + Build.VERSION.SDK_INT
+                    + " query " + relative + FLAG_NAME
+                    + " hit=" + hit
+                    + " rows=" + rows
+                    + names;
+        } catch (Throwable t) {
+            return "query failed " + t.getClass().getName() + " " + t.getMessage();
+        }
     }
 
     static boolean readHost(Context context) {
@@ -148,7 +183,6 @@ public final class DiagLog {
     }
 
     public static void line(String message) {
-        if (!enabled) return;
         String text = stamp() + " " + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
         try {
             XposedBridge.log("[" + TAG + "] " + text);
@@ -174,7 +208,7 @@ public final class DiagLog {
 
     private static void flushNow() {
         Context context = appContext;
-        if (context == null || !enabled) return;
+        if (context == null) return;
         List<String> batch;
         synchronized (LOCK) {
             if (pending.isEmpty()) return;
