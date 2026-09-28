@@ -23,13 +23,23 @@ final class DexTypes {
             int descIdx = u32(dex, typePos);
             if (descIdx < 0 || descIdx >= stringIds) continue;
             String desc = string(dex, stringOff, descIdx);
-            if (desc.contains(needle)) found.add(desc);
+            if (isMapsTimeline(desc, needle)) found.add(desc);
         }
         return found;
     }
 
     static int countDescriptorContaining(byte[] dex, String needle) {
         return descriptorsContaining(dex, needle, Integer.MAX_VALUE).size();
+    }
+
+    /**
+     * A Maps Timeline class lives under a Google package. Framework types such as
+     * {@code android.view.Choreographer$FrameTimeline} contain the same word and are not the screen.
+     */
+    static boolean isMapsTimeline(String descriptor, String needle) {
+        if (descriptor == null || needle == null || !descriptor.contains(needle)) return false;
+        return descriptor.startsWith("Lcom/google/")
+                || descriptor.startsWith("Lcom/google/android/apps/maps/");
     }
 
     private static String string(byte[] dex, int stringIdsOff, int index) {

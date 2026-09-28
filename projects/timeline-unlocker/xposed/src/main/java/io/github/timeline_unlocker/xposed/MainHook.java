@@ -222,46 +222,26 @@ public class MainHook extends XposedModule {
      * screen that is still there. history = PlaceCandidate loaded; ui = a Timeline* class exists.
      */
     private void reportTimelineClasses(ClassLoader cl) {
-        java.util.List<String> names = new java.util.ArrayList<>();
-        int dex = 0;
-        String apk = null;
+        // loadClass forces the type in, so it is not "the screen opened".
+        // TimelineWrapper is the UI object. A constructor hook fires when Maps creates it.
+        String binary = "com.google.android.apps.gmm.mapsactivity.instant.TimelineWrapper";
+        log("timeline candidate: %s", binary);
+        int armed = 0;
         try {
-            Class<?> at = Class.forName("android.app.ActivityThread");
-            Object app = at.getMethod("currentApplication").invoke(null);
-            if (app != null) {
-                apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+            Class<?> type = cl.loadClass(binary);
+            Constructor<?>[] ctors = type.getDeclaredConstructors();
+            for (Constructor<?> ctor : ctors) {
+                hook(ctor).intercept(chain -> {
+                    noteProbe("ctor", binary, "new", "opened");
+                    return chain.proceed();
+                });
             }
+            armed = ctors.length == 0 ? 0 : 1;
+            if (ctors.length == 0) log("timeline no-ctor: %s", binary);
         } catch (Throwable t) {
-            log("timeline apk path failed: %s", t.getClass().getSimpleName());
+            log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
-        if (apk != null) {
-            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
-                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-                while (entries.hasMoreElements() && names.size() < 8) {
-                    String entry = entries.nextElement().getName();
-                    if (!entry.startsWith("classes") || !entry.endsWith(".dex")) continue;
-                    dex++;
-                    names.addAll(DexTypes.descriptorsContaining(
-                            readAll(zip.getInputStream(zip.getEntry(entry))), "Timeline", 8 - names.size()));
-                }
-            } catch (Throwable t) {
-                log("timeline dex scan failed: %s", t.getClass().getSimpleName());
-            }
-        }
-        int loaded = 0;
-        for (String desc : names) {
-            String binary = desc.startsWith("L") && desc.endsWith(";")
-                    ? desc.substring(1, desc.length() - 1).replace('/', '.') : desc;
-            try {
-                cl.loadClass(binary);
-                loaded++;
-                log("timeline loaded: %s", binary);
-            } catch (Throwable t) {
-                log("timeline not-loaded: %s (%s)", binary, t.getClass().getSimpleName());
-            }
-        }
-        log("timeline loaded %d/%d from %d dex apk=%s",
-                loaded, names.size(), dex, apk == null ? "unknown" : "ok");
+        log("timeline watching %d/1", armed);
     }
 
     private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
@@ -384,7 +364,7 @@ public class MainHook extends XposedModule {
                 String key = (String) chain.getArg(0);
                 String fake = SpoofedSystemProperties.valueFor(key, FAKE_MCC_MNC, FAKE_ISO);
                 if (fake != null) {
-                    noteProbe("SystemProperties", key, chain.proceed(), "raw");
+                    noteProbe("SystemProperties", "get " + key, chain.proceed(), "raw");
                     return fake;
                 }
                 return chain.proceed();
@@ -397,7 +377,7 @@ public class MainHook extends XposedModule {
                 String key = (String) chain.getArg(0);
                 String fake = SpoofedSystemProperties.valueFor(key, FAKE_MCC_MNC, FAKE_ISO);
                 if (fake != null) {
-                    noteProbe("SystemProperties", key, chain.proceed(), "raw");
+                    noteProbe("SystemProperties", "get " + key, chain.proceed(), "raw");
                     return fake;
                 }
                 return chain.proceed();

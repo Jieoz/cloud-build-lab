@@ -24,6 +24,19 @@ public class DexTypesTest {
         assertEquals(0, DexTypes.countDescriptorContaining(new byte[10], "Timeline"));
     }
 
+    @Test
+    public void skipsFrameworkFrameTimeline() {
+        byte[] dex = miniDex(
+                new String[]{
+                        "Landroid/view/Choreographer$FrameTimeline;",
+                        "Lcom/google/android/gms/semanticlocation/TimelineMemory;",
+                        "Lcom/google/android/apps/maps/TimelineActivity;"},
+                new int[]{0, 1, 2});
+        java.util.List<String> names = DexTypes.descriptorsContaining(dex, "Timeline", 8);
+        assertEquals(2, names.size());
+        assertEquals("Lcom/google/android/gms/semanticlocation/TimelineMemory;", names.get(0));
+    }
+
     /** header(0x70) + string ids + type ids + the string data. */
     private static byte[] miniDex(String[] strings, int[] typeStringIndex) {
         int header = 0x70;
