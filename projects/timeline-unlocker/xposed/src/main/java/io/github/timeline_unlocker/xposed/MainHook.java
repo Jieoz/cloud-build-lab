@@ -74,6 +74,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 protected void afterHookedMethod(MethodHookParam param) {
                     Context context = (Application) param.thisObject;
                     if (!pkg.equals(context.getPackageName())) return;
+                    if (!pkg.equals(android.app.Application.getProcessName())) return;
                     DiagLog.bind(context);
                     hookUrlStrings(context.getClassLoader(), context.getPackageCodePath());
                     android.content.IntentFilter filter = new android.content.IntentFilter(LogSwitchReceiver.ACTION);
@@ -211,7 +212,7 @@ public class MainHook implements IXposedHookLoadPackage {
             java.util.Set<String> names = new java.util.LinkedHashSet<>();
             java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
             byte[] buf = new byte[1 << 20];
-            while (entries.hasMoreElements() && names.size() < 80) {
+            while (entries.hasMoreElements() && names.size() < 400) {
                 java.util.zip.ZipEntry entry = entries.nextElement();
                 String entryName = entry.getName();
                 if (!entryName.endsWith(".dex") || entry.getSize() > 40_000_000) continue;
@@ -222,7 +223,7 @@ public class MainHook implements IXposedHookLoadPackage {
                 in.close();
                 String text = new String(out.toByteArray(), java.nio.charset.StandardCharsets.ISO_8859_1);
                 int from = 0;
-                while (names.size() < 80 && (from = text.indexOf("http", from)) >= 0) {
+                while (names.size() < 400 && (from = text.indexOf("http", from)) >= 0) {
                     int start = text.lastIndexOf('L', from);
                     int end = text.indexOf(';', start);
                     if (start >= 0 && end > start && end - start < 180 && from - start < 160) {
@@ -247,7 +248,13 @@ public class MainHook implements IXposedHookLoadPackage {
                     methods++;
                 }
             }
-            log("dex classes with urls: %d", types);
+            StringBuilder found = new StringBuilder();
+            int shown = 0;
+            for (String name : names) {
+                if (shown < 40) found.append(' ').append(name);
+                shown++;
+            }
+            log("dex classes with urls: %d%s", types, found);
         } catch (Throwable t) {
             log("url scan failed: %s", t);
         }
