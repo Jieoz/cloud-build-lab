@@ -44,11 +44,7 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
         log("loading package: %s (process=%s)", pkg, lpparam.processName);
-
-        ClassLoader cl = lpparam.classLoader;
-        hookTelephonyManager(cl);
-        hookSubscriptionInfo(cl);
-        hookSystemProperties(cl);
+        log("country hooks paused, requests unchanged");
 
         // 只在 Maps 进程里给 Location 做 WGS-84 -> GCJ-02 转换，
         // 修正"Maps 把国家当成 us 不再做坐标偏移"造成的小蓝点偏移。
