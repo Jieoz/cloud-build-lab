@@ -78,7 +78,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。打开后回到地图，日志出现在系统「下载」。不用强停。"
+                ? "默认关闭。开关在地图「重新启动」时读取一次：改动后请强停地图再打开，日志出现在系统「下载」。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (!ready && retries < 10) {
             retries++;
@@ -102,8 +102,8 @@ public class LogExportActivity extends Activity {
         }
         Toast.makeText(this,
                 checked
-                        ? "已打开。回到地图即可，文件出现在系统「下载」。"
-                        : "已关闭。回到地图后停止写。",
+                        ? "已打开。请强停地图再重新打开，文件出现在系统「下载」。"
+                        : "已关闭。地图下次重启后停止写。",
                 Toast.LENGTH_LONG).show();
     }
 

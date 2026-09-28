@@ -103,6 +103,10 @@ public class MainHook extends XposedModule {
                             DiagLog.bind(context, on);
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
+                            } else {
+                                // Off: release the startup buffer instead of holding it for the
+                                // process lifetime. Nothing will ever read it while off.
+                                drainEarly();
                             }
                         }
                     }
