@@ -18,7 +18,8 @@ public class DiagLogPathTest {
         Files.write(maps.resolve("session-test.txt"),
                 "12:00:00.000 loading package: com.google.android.apps.maps\n".getBytes(StandardCharsets.UTF_8));
 
-        String text = Files.readString(maps.resolve("session-test.txt"));
+        byte[] raw = Files.readAllBytes(maps.resolve("session-test.txt"));
+        String text = new String(raw, StandardCharsets.UTF_8);
         assertTrue(text.contains("com.google.android.apps.maps"));
         assertTrue(maps.toString().contains(DiagLog.DIR_NAME));
     }
