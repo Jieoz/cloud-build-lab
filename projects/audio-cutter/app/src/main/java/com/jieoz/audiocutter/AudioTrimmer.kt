@@ -51,9 +51,6 @@ object AudioTrimmer {
 
             val sampleRate = srcFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = srcFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            val totalDurationUs =
-                if (srcFormat.containsKey(MediaFormat.KEY_DURATION))
-                    srcFormat.getLong(MediaFormat.KEY_DURATION) else (endUs - startUs)
 
             val mime = srcFormat.getString(MediaFormat.KEY_MIME)
                 ?: throw IllegalStateException("无法识别音频编码")

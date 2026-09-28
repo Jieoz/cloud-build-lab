@@ -86,9 +86,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         tvFile.text = "$displayName  (${formatMs(durationMs)})"
-        slider.valueFrom = 0f
-        slider.valueTo = durationMs.toFloat()
-        slider.setValues(0f, durationMs.toFloat())
+        // Slider runs on a fixed 0..1000 permille scale (see XML). Binding it directly
+        // to raw millisecond floats loses precision on long tracks and makes the two
+        // thumbs cross by a sub-pixel sliver mid-drag, which throws in validateValues
+        // and hard-crashes. Keep the slider range constant; map to ms in code.
+        slider.setValues(0f, 1000f)
         slider.isEnabled = true
         btnPlay.isEnabled = true
         btnCut.isEnabled = true
@@ -99,24 +101,31 @@ class MainActivity : AppCompatActivity() {
     private fun updateRangeLabel() {
         val v = slider.values
         if (v.size == 2) {
-            tvRange.text = "保留区间：${formatMs(v[0].toLong())} — ${formatMs(v[1].toLong())}" +
-                    "  (共 ${formatMs((v[1] - v[0]).toLong())})"
+            val startMs = permilleToMs(v[0])
+            val endMs = permilleToMs(v[1])
+            tvRange.text = "保留区间：${formatMs(startMs)} — ${formatMs(endMs)}" +
+                    "  (共 ${formatMs(endMs - startMs)})"
         }
     }
+
+    /** Maps a 0..1000 permille slider position to milliseconds in the current track. */
+    private fun permilleToMs(permille: Float): Long =
+        (permille / 1000f * durationMs).toLong().coerceIn(0L, durationMs)
 
     private fun previewSelection() {
         val uri = sourceUri ?: return
         val v = slider.values
+        val startMs = permilleToMs(v[0])
+        val endMs = permilleToMs(v[1])
         stopPlayback()
         val mp = MediaPlayer()
         player = mp
         try {
             mp.setDataSource(this, uri)
             mp.setOnPreparedListener {
-                mp.seekTo(v[0].toInt())
+                mp.seekTo(startMs.toInt())
                 mp.start()
                 btnStop.isEnabled = true
-                val endMs = v[1].toLong()
                 io.execute {
                     while (player === mp && mp.isPlaying && mp.currentPosition < endMs) {
                         Thread.sleep(50)
@@ -142,8 +151,8 @@ class MainActivity : AppCompatActivity() {
     private fun doCut() {
         val uri = sourceUri ?: return
         val v = slider.values
-        val startUs = v[0].toLong() * 1000
-        val endUs = v[1].toLong() * 1000
+        val startUs = permilleToMs(v[0]) * 1000
+        val endUs = permilleToMs(v[1]) * 1000
         if (endUs - startUs < 100_000) {
             tvStatus.text = "选段太短（至少 0.1 秒）"
             return
