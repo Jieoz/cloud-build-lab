@@ -71,9 +71,10 @@ final class DexTypes {
         return new String(dex, i, end - i, StandardCharsets.UTF_8);
     }
 
+
     /**
-     * Methods whose bytecode contains {@code needle}. Used once at startup to see who can
-     * construct TimelineWrapper. Does not execute those methods.
+     * One line per method that invokes a constructor of a class whose name contains {@code needle}:
+     * caller, then the method names it invokes. Does not execute them.
      */
     static java.util.List<String> methodsContaining(byte[] dex, String needle, int limit) {
         java.util.List<String> found = new java.util.ArrayList<>();
@@ -99,55 +100,84 @@ final class DexTypes {
             }
         }
         if (targets.isEmpty()) return found;
-        boolean[] hit = new boolean[methodIds];
-        for (int c = 0; c < classDefs; c++) {
+        java.util.List<Integer> called = new java.util.ArrayList<>();
+        for (int c = 0; c < classDefs && found.size() < limit; c++) {
             int classPos = classOff + c * 32;
             if (classPos < 0 || classPos + 32 > dex.length) break;
             int classDataOff = u32(dex, classPos + 24);
             if (classDataOff <= 0 || classDataOff >= dex.length) continue;
             int[] cursor = new int[]{classDataOff};
-            int staticFields = uleb(dex, cursor);
-            int instanceFields = uleb(dex, cursor);
+            skipEncodedFields(dex, cursor, uleb(dex, cursor) + uleb(dex, cursor));
             int directMethods = uleb(dex, cursor);
             int virtualMethods = uleb(dex, cursor);
-            skipEncodedFields(dex, cursor, staticFields + instanceFields);
-            markMethods(dex, cursor, directMethods, targets, hit);
-            markMethods(dex, cursor, virtualMethods, targets, hit);
+            markMethods(dex, cursor, directMethods, targets, found, called, stringOff, typeOff, methodOff);
+            markMethods(dex, cursor, virtualMethods, targets, found, called, stringOff, typeOff, methodOff);
         }
-        for (int i = 0; i < methodIds && found.size() < limit; i++) {
-            if (!hit[i]) continue;
-            int pos = methodOff + i * 8;
-            if (pos < 0 || pos + 8 > dex.length) continue;
-            int classIdx = u16(dex, pos);
-            int nameIdx = u32(dex, pos + 4);
-            found.add(typeName(dex, stringOff, typeOff, classIdx) + "->" + string(dex, stringOff, nameIdx));
-        }
-        return found;
+        return found.size() > limit ? found.subList(0, limit) : found;
     }
 
-    private static boolean calls(byte[] dex, int start, int end, java.util.List<Integer> targets) {
-        for (int i = start; i + 6 <= end; i += 2) {
-            int op = dex[i] & 0xff;
-            if ((op >= 0x6e && op <= 0x72) || op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) {
-                int idx = (dex[i + 2] & 0xff) | ((dex[i + 3] & 0xff) << 8);
-                if (targets.contains(idx)) return true;
-            }
-        }
-        return false;
-    }
-
-    private static void markMethods(byte[] dex, int[] cursor, int count, java.util.List<Integer> targets, boolean[] hit) {
+    private static void markMethods(byte[] dex, int[] cursor, int count, java.util.List<Integer> targets,
+                                    java.util.List<String> found, java.util.List<Integer> called,
+                                    int stringOff, int typeOff, int methodOff) {
         int methodIdx = 0;
         for (int i = 0; i < count; i++) {
             if (cursor[0] >= dex.length) return;
             methodIdx += uleb(dex, cursor);
             uleb(dex, cursor);
             int codeOff = uleb(dex, cursor);
-            if (methodIdx < 0 || methodIdx >= hit.length || codeOff <= 0 || codeOff >= dex.length) continue;
+            if (methodIdx < 0 || codeOff <= 0 || codeOff >= dex.length) continue;
             int insns = u32(dex, codeOff + 12);
             int start = codeOff + 16;
             int end = Math.min(dex.length, start + insns * 2);
-            if (calls(dex, start, end, targets)) hit[methodIdx] = true;
+            int before = called.size();
+            if (!calls(dex, start, end, targets, called)) continue;
+            int pos = methodOff + methodIdx * 8;
+            if (pos < 0 || pos + 8 > dex.length) continue;
+            String caller = typeName(dex, stringOff, typeOff, u16(dex, pos))
+                    + "->" + string(dex, stringOff, u32(dex, pos + 4));
+            java.util.List<String> names = new java.util.ArrayList<>();
+            for (int n = before; n < called.size(); n++) {
+                int ipos = methodOff + called.get(n) * 8;
+                if (ipos < 0 || ipos + 8 > dex.length) continue;
+                names.add(string(dex, stringOff, u32(dex, ipos + 4)));
+            }
+            called.clear();
+            found.add(caller + " calls " + names);
+        }
+    }
+
+    private static boolean calls(byte[] dex, int start, int end, java.util.List<Integer> targets,
+                                 java.util.List<Integer> invoked) {
+        for (int i = start; i + 2 <= end; ) {
+            int op = dex[i] & 0xff;
+            if (op >= 0x0e && op <= 0x11) break;
+            int width = opWidth(op);
+            if (width < 2) width = 2;
+            if ((op >= 0x6e && op <= 0x72) || op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) {
+                if (i + 4 <= end) {
+                    int idx = (dex[i + 2] & 0xff) | ((dex[i + 3] & 0xff) << 8);
+                    if (targets.contains(idx)) {
+                        collectInvokes(dex, start, end, invoked);
+                        return true;
+                    }
+                }
+            }
+            i += width;
+        }
+        return false;
+    }
+
+    private static void collectInvokes(byte[] dex, int start, int end, java.util.List<Integer> invoked) {
+        for (int i = start; i + 2 <= end && invoked.size() < 24; ) {
+            int op = dex[i] & 0xff;
+            if (op >= 0x0e && op <= 0x11) break;
+            int width = opWidth(op);
+            if (width < 2) width = 2;
+            if (((op >= 0x6e && op <= 0x72) || op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) && i + 4 <= end) {
+                int idx = (dex[i + 2] & 0xff) | ((dex[i + 3] & 0xff) << 8);
+                if (!invoked.contains(idx)) invoked.add(idx);
+            }
+            i += width;
         }
     }
 
@@ -156,6 +186,19 @@ final class DexTypes {
             uleb(dex, cursor);
             uleb(dex, cursor);
         }
+    }
+
+
+    /** Code units. 10x instructions carry a packed-switch/array payload after them. */
+    private static int opWidth(int op) {
+        if (op == 0x00) return 2;
+        if ((op >= 0x01 && op <= 0x0d) || op == 0x0f || op == 0x12 || op == 0x1d || op == 0x1e
+                || op == 0x27 || (op >= 0x7b && op <= 0x8f) || (op >= 0xd0 && op <= 0xe2)) return 2;
+        if (op == 0x0e || op == 0x10 || op == 0x11 || op == 0x13 || op == 0x15 || op == 0x16
+                || op == 0x19 || op == 0x1a || op == 0x1c || op == 0x1f || op == 0x20 || op == 0x21
+                || op == 0x22 || (op >= 0x2d && op <= 0x31) || (op >= 0x44 && op <= 0x6d)
+                || (op >= 0x90 && op <= 0xaf) || (op >= 0xd8 && op <= 0xeb)) return 4;
+        return 6;
     }
 
     private static int uleb(byte[] dex, int[] cursor) {
@@ -168,21 +211,6 @@ final class DexTypes {
             shift += 7;
         }
         return result;
-    }
-
-    private static int indexOf(byte[] data, int start, int end, byte[] needle) {
-        int last = end - needle.length;
-        for (int i = start; i <= last; i++) {
-            boolean ok = true;
-            for (int j = 0; j < needle.length; j++) {
-                if (data[i + j] != needle[j]) {
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok) return i;
-        }
-        return -1;
     }
 
     private static int u16(byte[] b, int off) {
