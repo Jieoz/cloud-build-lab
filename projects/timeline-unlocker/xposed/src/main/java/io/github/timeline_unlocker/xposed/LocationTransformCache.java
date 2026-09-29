@@ -23,7 +23,7 @@ final class LocationTransformCache {
         this.key = key;
         this.lat = lat;
         this.lng = lng;
-        CoordTransform.wgs84ToGcj02(lat, lng, transformed);
+        CoordTransform.undoOneGcj02(lat, lng, transformed);
         valid = true;
         return true;
     }
