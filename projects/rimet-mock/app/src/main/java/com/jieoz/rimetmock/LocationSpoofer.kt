@@ -28,6 +28,21 @@ import kotlin.math.sin
  */
 object LocationSpoofer {
 
+    // The config is a single small JSON doc. DingTalk may consult the profile on every
+    // location callback (several times per second), so re-parsing JSON per call is wasted
+    // work. Cache with a short TTL; config edits apply on the next DingTalk start anyway
+    // (the log switch is read-once, and profile edits go with a force-stop too in practice).
+    private const val STATE_TTL_MS = 3_000L
+
+    @Volatile
+    private var cachedAt: Long = Long.MIN_VALUE
+
+    @Volatile
+    private var cachedEnabled: Boolean = false
+
+    @Volatile
+    private var cachedActive: Profile? = null
+
     fun install(param: XposedModuleInterface.PackageReadyParam) {
         val cl = param.classLoader ?: return
         installAMapHooks(cl)
@@ -35,8 +50,14 @@ object LocationSpoofer {
     }
 
     private fun profile(): Profile? {
-        val s = ModulePrefs.state()
-        return if (s.enabled) s.active else null
+        val now = SystemClock.elapsedRealtime()
+        if (now - cachedAt >= STATE_TTL_MS) {
+            val s = ModulePrefs.state()
+            cachedEnabled = s.enabled
+            cachedActive = s.active
+            cachedAt = now
+        }
+        return if (cachedEnabled) cachedActive else null
     }
 
     // ---- AMap location hooks (resolved from host classloader) ----------------------------
@@ -55,7 +76,7 @@ object LocationSpoofer {
                 val p = profile() ?: return@hook
                 buildFakeLocation(cl, p)?.let {
                     call.result = it
-                    log("getLastKnownLocation() replaced")
+                    DebugLog.line("getLastKnownLocation() replaced (${p.name})")
                 }
             }
         }.onFailure { log("hook getLastKnownLocation failed: ${it.message}") }
@@ -69,7 +90,7 @@ object LocationSpoofer {
                 call.args[0] = Proxy.newProxyInstance(
                     cl, arrayOf(listenerCls), SpoofingListener(cl, original)
                 )
-                log("setLocationListener() wrapped")
+                DebugLog.line("setLocationListener() wrapped")
             }
         }.onFailure { log("hook setLocationListener failed: ${it.message}") }
     }
@@ -83,7 +104,10 @@ object LocationSpoofer {
             if (method.name == "onLocationChanged" && args != null && args.isNotEmpty()) {
                 val loc = args[0]
                 val p = profile()
-                if (loc is Location && p != null) applyAll(cl, loc, p, jitter = p.jitter)
+                if (loc is Location && p != null) {
+                    applyAll(cl, loc, p, jitter = p.jitter)
+                    DebugLog.line("onLocationChanged rewritten (${p.name}, jitter=${p.jitter})")
+                }
             }
             return method.invoke(delegate, *(args ?: emptyArray()))
         }
@@ -100,7 +124,7 @@ object LocationSpoofer {
         applyAll(cl, loc, p, jitter = false)
         loc
     }.getOrElse {
-        log("buildFakeLocation failed: ${it.message}")
+        DebugLog.line("buildFakeLocation failed: ${it.message}")
         null
     }
 
@@ -192,6 +216,7 @@ object LocationSpoofer {
     /** The active profile only when env-masking is on; null otherwise (host sees real radio). */
     private fun maskProfile(): Profile? = profile()?.takeIf { it.maskEnv }
 
+    /** Install-time log (LSPosed channel): always on, once per install, negligible cost. */
     private fun log(msg: String) {
         runCatching { RimetMockModule.framework.log(Log.DEBUG, Constants.TAG, msg) }
         Log.d(Constants.TAG, msg)

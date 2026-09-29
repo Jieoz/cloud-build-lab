@@ -4,11 +4,15 @@ object Constants {
     const val HOST_DINGTALK = "com.alibaba.android.rimet"
     const val SELF_PACKAGE = "com.jieoz.rimetmock"
 
-    // libxposed remote-prefs file. App writes, host reads.
+    // libxposed remote-prefs file. App writes (XposedService), host reads (hook interface).
     const val PREFS = "rimet_mock_prefs"
     // Whole state (profiles + active id + master switch) is ONE JSON key, so the remote-prefs
     // surface never drifts and there is no Parcel-version coupling like the original had.
     const val K_STATE = "state_json"
+    // Diagnostic log switch, default OFF. Sampled once per host process start (read-once,
+    // same contract as the other modules): off costs nothing at all, on survives until the
+    // host is force-stopped even if the phone reboots mid-debugging.
+    const val K_LOG = "diag_log"
 
     const val TAG = "RimetMock"
 

@@ -3,36 +3,62 @@ package com.jieoz.rimetmock
 import android.content.Context
 import android.content.SharedPreferences
 import io.github.libxposed.api.XposedInterface
+import io.github.libxposed.service.XposedService
+import io.github.libxposed.service.XposedServiceHelper
 
 /**
  * The single config channel between the module app and the host (DingTalk).
  *
- * The app stores the whole [MockState] as one JSON string in an ordinary private preference and
- * mirrors it into libxposed remote preferences on every commit/apply. The host reads that copy
- * via [state]. There is no world-readable XML (the file LSPosed 2.2 warns about, 2.3 removes) and
- * no ContentProvider fallback — one key, one channel.
+ * libxposed exposes TWO different preference interfaces and they are NOT interchangeable
+ * (the two-interface rule the sibling modules already follow):
+ *  - the module APP must write through [XposedService], bound via [XposedServiceHelper].
+ *    The hook-side [XposedInterface.getRemotePreferences] view inside the app process is a
+ *    read-only mirror — edits made through it never publish, which was exactly the bug that
+ *    made every saved profile invisible to DingTalk in the 0.1 build;
+ *  - the HOST process reads through the hook-side [XposedInterface.getRemotePreferences].
+ *
+ * Payload: the whole [MockState] as one JSON key, plus a separate log-switch boolean. There is
+ * no world-readable XML (the file LSPosed 2.2 warns about, 2.3 removes) and no ContentProvider
+ * fallback. A failed publish is returned to the caller and shown in the UI, never swallowed.
  */
 object ModulePrefs {
 
     @Volatile
     private var framework: XposedInterface? = null
 
+    @Volatile
+    private var service: XposedService? = null
+
+    @Volatile
+    var lastPublishError: String? = null
+        private set
+
+    init {
+        XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
+            override fun onServiceBind(bound: XposedService) {
+                service = bound
+            }
+
+            override fun onServiceDied(dead: XposedService) {
+                if (service === dead) service = null
+            }
+        })
+    }
+
     fun bind(base: XposedInterface) {
         framework = base
     }
 
-    private fun remote(): SharedPreferences? = framework?.getRemotePreferences(Constants.PREFS)
-
     /** Host-side read: the current state, or an empty default before anything is saved. */
-    fun state(): MockState = MockState.fromJson(remote()?.getString(Constants.K_STATE, null))
+    fun state(): MockState = MockState.fromJson(
+        framework?.getRemotePreferences(Constants.PREFS)?.getString(Constants.K_STATE, null)
+    )
 
-    /** App-side handle that publishes to remote prefs on commit/apply. */
-    fun open(context: Context): SharedPreferences =
-        PublishingPrefs(
-            context.applicationContext.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
-        )
+    /** Host-side read of the diagnostic log switch. Defaults closed (fail closed). */
+    fun logEnabled(): Boolean =
+        framework?.getRemotePreferences(Constants.PREFS)?.getBoolean(Constants.K_LOG, false) ?: false
 
-    /** App-side convenience: load + save the whole state. */
+    /** App-side convenience: last locally-written state (authoritative for the UI). */
     fun load(context: Context): MockState =
         MockState.fromJson(
             context.applicationContext
@@ -40,33 +66,35 @@ object ModulePrefs {
                 .getString(Constants.K_STATE, null)
         )
 
-    fun save(context: Context, state: MockState) {
-        open(context).edit().putString(Constants.K_STATE, state.toJson()).apply()
+    fun logEnabledLocal(context: Context): Boolean =
+        context.applicationContext
+            .getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+            .getBoolean(Constants.K_LOG, false)
+
+    /** App-side save: local write first, then publish. False = publish failed (see [lastPublishError]). */
+    fun save(context: Context, state: MockState): Boolean {
+        val local = context.applicationContext.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+        local.edit().putString(Constants.K_STATE, state.toJson()).commit()
+        return publishToRemote(local)
     }
 
-    private fun publish(local: SharedPreferences) {
-        val remote = remote() ?: return
-        remote.edit().putString(Constants.K_STATE, local.getString(Constants.K_STATE, null)).apply()
+    /** App-side log-switch write. Same contract as [save]. */
+    fun setLogEnabled(context: Context, value: Boolean): Boolean {
+        val local = context.applicationContext.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+        local.edit().putBoolean(Constants.K_LOG, value).commit()
+        return publishToRemote(local)
     }
 
-    private class PublishingPrefs(private val local: SharedPreferences) :
-        SharedPreferences by local {
-        override fun edit(): SharedPreferences.Editor = PublishingEditor(local.edit(), local)
-    }
-
-    private class PublishingEditor(
-        private val editor: SharedPreferences.Editor,
-        private val local: SharedPreferences
-    ) : SharedPreferences.Editor by editor {
-        override fun apply() {
-            editor.apply()
-            publish(local)
-        }
-
-        override fun commit(): Boolean {
-            val ok = editor.commit()
-            if (ok) publish(local)
-            return ok
-        }
+    private fun publishToRemote(local: SharedPreferences): Boolean = try {
+        val bound = service ?: throw IllegalStateException("XposedService not bound")
+        val editor = bound.getRemotePreferences(Constants.PREFS).edit()
+        editor.putString(Constants.K_STATE, local.getString(Constants.K_STATE, null))
+        editor.putBoolean(Constants.K_LOG, local.getBoolean(Constants.K_LOG, false))
+        if (!editor.commit()) throw IllegalStateException("remote commit returned false")
+        lastPublishError = null
+        true
+    } catch (t: Throwable) {
+        lastPublishError = t.javaClass.simpleName + ": " + t.message
+        false
     }
 }

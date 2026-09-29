@@ -17,6 +17,7 @@ internal object HookBridge {
 
     class Call(private val chain: XposedInterface.Chain) {
         val args: Array<Any?> = chain.args.toTypedArray()
+        val chainThis: Any? = chain.thisObject
 
         private var replaced = false
         private var replacement: Any? = null

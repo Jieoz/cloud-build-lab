@@ -7,6 +7,11 @@
     <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选钉钉与本应用作用域）</string>
 
     <string name="enable_mock">总开关：启用模拟定位</string>
+    <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启钉钉生效）</string>
+    <string name="log_on_toast">调试日志已开启：彻底重启钉钉后开始记录（Download/RimetMock/）</string>
+    <string name="log_off_toast">调试日志已关闭：彻底重启钉钉后生效</string>
+    <string name="publish_failed">配置发布失败（%1$s）。钉钉读到的仍是旧配置——请确认 LSPosed 已激活本模块后再试。</string>
+    <string name="publish_failed_unknown">XposedService 未绑定</string>
     <string name="add_profile">＋ 新建位置</string>
     <string name="profiles_title">已保存位置</string>
     <string name="no_profiles">还没有保存的位置，点上方新建。</string>

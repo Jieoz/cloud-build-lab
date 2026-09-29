@@ -12,15 +12,18 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Profile list + master switch. Each row shows a profile, lets you activate it (radio), edit, or
- * delete. Matches the original module's multi-profile model. The editor lives in [EditActivity].
+ * Profile list + master switch + diagnostic log switch. Each row shows a profile, lets you
+ * activate it (radio), edit, or delete. Matches the original module's multi-profile model.
+ * The editor lives in [EditActivity].
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var state: MockState
 
     private lateinit var status: TextView
+    private lateinit var publishStatus: TextView
     private lateinit var masterSwitch: CheckBox
+    private lateinit var logSwitch: CheckBox
     private lateinit var list: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,12 +31,27 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         status = findViewById(R.id.status)
+        publishStatus = findViewById(R.id.publish_status)
         masterSwitch = findViewById(R.id.master_switch)
+        logSwitch = findViewById(R.id.log_switch)
         list = findViewById(R.id.profile_list)
 
         masterSwitch.setOnCheckedChangeListener { _, checked ->
             state = state.copy(enabled = checked)
             persist()
+        }
+        logSwitch.setOnCheckedChangeListener { _, checked ->
+            val ok = ModulePrefs.setLogEnabled(this, checked)
+            if (ok) {
+                publishStatus.text = ""
+                Toast.makeText(
+                    this,
+                    if (checked) R.string.log_on_toast else R.string.log_off_toast,
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                showPublishError()
+            }
         }
         findViewById<Button>(R.id.add).setOnClickListener {
             startActivity(EditActivity.intent(this, null))
@@ -54,6 +72,22 @@ class MainActivity : AppCompatActivity() {
         masterSwitch.isChecked = state.enabled
         masterSwitch.setOnCheckedChangeListener { _, checked ->
             state = state.copy(enabled = checked); persist()
+        }
+
+        logSwitch.setOnCheckedChangeListener(null)
+        logSwitch.isChecked = ModulePrefs.logEnabledLocal(this)
+        logSwitch.setOnCheckedChangeListener { _, checked ->
+            val ok = ModulePrefs.setLogEnabled(this, checked)
+            if (ok) {
+                publishStatus.text = ""
+                Toast.makeText(
+                    this,
+                    if (checked) R.string.log_on_toast else R.string.log_off_toast,
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                showPublishError()
+            }
         }
 
         list.removeAllViews()
@@ -110,5 +144,15 @@ class MainActivity : AppCompatActivity() {
         return row
     }
 
-    private fun persist() = ModulePrefs.save(this, state)
+    private fun persist() {
+        val ok = ModulePrefs.save(this, state)
+        if (ok) publishStatus.text = "" else showPublishError()
+    }
+
+    private fun showPublishError() {
+        publishStatus.text = getString(
+            R.string.publish_failed,
+            ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
+        )
+    }
 }

@@ -150,7 +150,19 @@ class EditActivity : AppCompatActivity() {
             profiles = others + p,
             activeId = state.activeId ?: id  // first profile becomes active by default
         )
-        ModulePrefs.save(this, newState)
+        if (!ModulePrefs.save(this, newState)) {
+            // Local write landed but the host will never see it — keep the editor open and
+            // say so instead of pretending the save worked.
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.publish_failed,
+                    ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
         finish()
     }
