@@ -170,19 +170,103 @@ final class DexTypes {
         return result;
     }
 
-    private static int indexOf(byte[] data, int start, int end, byte[] needle) {
-        int last = end - needle.length;
-        for (int i = start; i <= last; i++) {
-            boolean ok = true;
-            for (int j = 0; j < needle.length; j++) {
-                if (data[i + j] != needle[j]) {
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok) return i;
+    /**
+     * Invoke targets of one named method. Walks only that method's code, then stops.
+     * A full-dex invoke walk on the startup path hangs Maps.
+     */
+    static java.util.List<String> invokesOf(byte[] dex, String ownerNeedle, String methodName, int limit) {
+        return invokesOf(dex, ownerNeedle, methodName, null, limit);
+    }
+
+    /**
+     * Invoke targets of one named method. When {@code mustCall} is set, only the overload whose
+     * body references that type is decoded. Walks that one method, then stops.
+     */
+    static java.util.List<String> invokesOf(byte[] dex, String ownerNeedle, String methodName,
+            String mustCall, int limit) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x74 || ownerNeedle == null || methodName == null || limit <= 0) {
+            return found;
         }
-        return -1;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int methodIds = u32(dex, 0x58);
+        int methodOff = u32(dex, 0x5c);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (methodIds <= 0 || classDefs <= 0) return found;
+        for (int c = 0; c < classDefs && found.isEmpty(); c++) {
+            int classPos = classOff + c * 32;
+            if (classPos < 0 || classPos + 32 > dex.length) break;
+            String owner = typeName(dex, stringOff, typeOff, u32(dex, classPos));
+            if (!ownerNeedle.equals(owner) && !("L" + ownerNeedle + ";").equals(owner)) continue;
+            int classDataOff = u32(dex, classPos + 24);
+            if (classDataOff <= 0 || classDataOff >= dex.length) continue;
+            int[] cursor = new int[]{classDataOff};
+            int staticFields = uleb(dex, cursor);
+            int instanceFields = uleb(dex, cursor);
+            int directMethods = uleb(dex, cursor);
+            int virtualMethods = uleb(dex, cursor);
+            skipEncodedFields(dex, cursor, staticFields + instanceFields);
+            collectNamed(dex, cursor, directMethods, methodOff, stringOff, typeOff, methodName, mustCall, found, limit);
+            collectNamed(dex, cursor, virtualMethods, methodOff, stringOff, typeOff, methodName, mustCall, found, limit);
+        }
+        return found;
+    }
+
+    private static void collectNamed(byte[] dex, int[] cursor, int count, int methodOff, int stringOff,
+            int typeOff, String methodName, String mustCall, java.util.List<String> found, int limit) {
+        int methodIdx = 0;
+        for (int i = 0; i < count; i++) {
+            if (cursor[0] >= dex.length) return;
+            methodIdx += uleb(dex, cursor);
+            uleb(dex, cursor);
+            int codeOff = uleb(dex, cursor);
+            if (!found.isEmpty()) continue;
+            int pos = methodOff + methodIdx * 8;
+            if (pos < 0 || pos + 8 > dex.length || codeOff <= 0 || codeOff >= dex.length) continue;
+            if (!methodName.equals(string(dex, stringOff, u32(dex, pos + 4)))) continue;
+            int insns = u32(dex, codeOff + 12);
+            int start = codeOff + 16;
+            int end = Math.min(dex.length, start + Math.max(0, insns) * 2);
+            java.util.List<String> local = new java.util.ArrayList<>();
+            boolean matched = mustCall == null || mustCall.isEmpty();
+            for (int pc = start; pc + 2 <= end && local.size() < limit; ) {
+                int op = dex[pc] & 0xff;
+                int width = insnWidth(dex, pc, end);
+                if (width < 2) break;
+                if ((op >= 0x6e && op <= 0x72) || op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) {
+                    int idx = (dex[pc + 2] & 0xff) | ((dex[pc + 3] & 0xff) << 8);
+                    int target = methodOff + idx * 8;
+                    if (target >= 0 && target + 8 <= dex.length) {
+                        String who = typeName(dex, stringOff, typeOff, u16(dex, target));
+                        String name = string(dex, stringOff, u32(dex, target + 4));
+                        if (mustCall != null && who.contains(mustCall)) matched = true;
+                        String line = who + "->" + name;
+                        if (!local.contains(line)) local.add(line);
+                    }
+                }
+                pc += width;
+            }
+            if (matched) found.addAll(local);
+        }
+    }
+
+    /** Code units consumed by the instruction at pc. 0 means the cursor cannot advance. */
+    private static int insnWidth(byte[] dex, int pc, int end) {
+        if (pc >= end) return 0;
+        int op = dex[pc] & 0xff;
+        if (op == 0x00) return 2;
+        if (op == 0x01 || op == 0x04 || op == 0x05 || op == 0x06 || op == 0x07) return 2;
+        if (op == 0x02) return 4;
+        if (op == 0x03) return 6;
+        if ((op >= 0x12 && op <= 0x19) || op == 0x1a || op == 0x1c || op == 0x1d || op == 0x1e || op == 0x1f) return 2;
+        if (op == 0x1b) return 4;
+        if (op == 0x26) return 4;
+        if ((op >= 0x2d && op <= 0x31) || op == 0x32) return 4;
+        if (op >= 0x6e && op <= 0x72) return 6;
+        if (op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) return 6;
+        return 2;
     }
 
     private static int u16(byte[] b, int off) {

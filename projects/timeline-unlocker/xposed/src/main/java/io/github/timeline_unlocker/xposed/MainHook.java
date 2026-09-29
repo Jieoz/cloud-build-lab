@@ -242,7 +242,39 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
-        reportTimelineCallers();
+        reportGate();
+    }
+
+    private void reportGate() {
+        String apk = null;
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object app = at.getMethod("currentApplication").invoke(null);
+            if (app != null) apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+        } catch (Throwable t) {
+            log("timeline gate path failed: %s", t.getClass().getSimpleName());
+            return;
+        }
+        if (apk == null) return;
+        java.util.List<String> calls = new java.util.ArrayList<>();
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements() && calls.isEmpty()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                calls.addAll(DexTypes.invokesOf(
+                        readAll(zip.getInputStream(entry)), "aklx", "a", "TimelineWrapper", 12));
+            }
+        } catch (Throwable t) {
+            log("timeline gate failed: %s", t.getClass().getSimpleName());
+            return;
+        }
+        if (calls.isEmpty()) {
+            log("timeline gate: none");
+            return;
+        }
+        for (String call : calls) log("timeline gate: %s", call);
     }
 
     private void reportTimelineCallers() {
