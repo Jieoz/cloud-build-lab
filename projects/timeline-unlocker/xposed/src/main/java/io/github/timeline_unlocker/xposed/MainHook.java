@@ -54,13 +54,11 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            // Maps now reads the SIM country itself and skips the timeline when that
-            // read is cn. Spoof it here so the entry can open. Maps then stops its
-            // own GCJ shift, so the live-location hook undoes exactly one shift and
-            // puts the blue dot back on the road. History points stay on the
-            // PlaceCandidate rewrite below.
+            // Maps skips Timeline while any of these reads still look like a China SIM.
+            // Country iso alone (log54) left 46002/46000 in place and the entry stayed
+            // closed. Spoof the operator codes too. Do not rewrite live Location here:
+            // stacking a GCJ shift on Maps' own correction moved the blue dot.
             hookSemanticLocationPoint(cl);
-            hookLocationGcj02();
             hookTimelineReads(cl, false);
             hookTelephonyManager(cl);
         } else {
@@ -294,6 +292,13 @@ public class MainHook extends XposedModule {
         // later and did not bring the entry back.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIso", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getSimOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {
