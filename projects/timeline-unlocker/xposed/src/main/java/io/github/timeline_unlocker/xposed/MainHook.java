@@ -54,15 +54,13 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            // Maps skips Timeline while any of these reads still look like a China SIM.
-            // Country iso alone (log54) left 46002/46000 in place and the entry stayed
-            // closed. Spoof the operator codes too. Do not rewrite live Location here:
-            // stacking a GCJ shift on Maps' own correction moved the blue dot.
+            // log33 baseline: history points only. Every Maps-side spoof (telephony iso,
+            // operators, the bvsu/bvsu.i guess) changed nothing except risking the blue dot.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
-            hookTelephonyManager(cl);
-            hookTimelineOpen(cl);
         } else {
+            // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
+            // are the working pair. Keep exactly that.
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
             hookSystemProperties(cl);
@@ -247,108 +245,6 @@ public class MainHook extends XposedModule {
         log("timeline watching %d/1", armed);
     }
 
-    /**
-     * Both methods that call the timeline builder skip it when {@code bvsu.i()} is true.
-     * That check is not a country or operator read. Force it false inside Maps only.
-     * No dex walk: the class is loaded when Maps starts.
-     */
-    private void hookTimelineOpen(ClassLoader cl) {
-        Class<?> gate;
-        try {
-            gate = cl.loadClass("bvsu");
-        } catch (Throwable t) {
-            log("timeline open class missing: %s", t.getClass().getSimpleName());
-            return;
-        }
-        int hooked = 0;
-        for (Method method : gate.getDeclaredMethods()) {
-            if (!method.getName().equals("i") || method.getReturnType() != boolean.class) continue;
-            try {
-                hook(method).intercept(chain -> Boolean.FALSE);
-                hooked++;
-            } catch (Throwable t) {
-                log("timeline open hook failed: %s", t.getClass().getSimpleName());
-            }
-        }
-        log("timeline open hooked %d", hooked);
-    }
-
-    /**
-     * The only method that constructs TimelineWrapper is obfuscated {@code aklx.a}.
-     * Its body contains the constructor invoke, but Maps returns before reaching it.
-     * Record the values that method actually reads, then whether the constructor ran.
-     * Nothing here walks the APK dex; the method is hooked only when Maps calls it.
-     */
-    private void hookTimelineGate(ClassLoader cl) {
-        Class<?> gate;
-        try {
-            gate = cl.loadClass("aklx");
-        } catch (Throwable t) {
-            log("timeline gate class missing: %s", t.getClass().getSimpleName());
-            return;
-        }
-        int hooked = 0;
-        for (Method method : gate.getDeclaredMethods()) {
-            if (!method.getName().equals("a")) continue;
-            try {
-                hook(method).intercept(chain -> {
-                    log("timeline gate entered %s", method);
-                    Object result = chain.proceed();
-                    log("timeline gate returned %s opened=%s result=%s",
-                            method, timelineOpened, result);
-                    return result;
-                });
-                hooked++;
-            } catch (Throwable t) {
-                log("timeline gate hook failed: %s", t.getClass().getSimpleName());
-            }
-        }
-        log("timeline gate methods %d", hooked);
-    }
-
-    /**
-     * aklx.a can construct TimelineWrapper and this launch never entered it. Decode only that
-     * one method and log the country/operator reads it contains. Do not scan the rest of the dex.
-     * Must run after Application exists; package load has no code path yet.
-     */
-    private void reportGateReads(Context context) {
-        try {
-            String apk = context.getPackageCodePath();
-            java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk);
-            try {
-                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-                while (entries.hasMoreElements()) {
-                    java.util.zip.ZipEntry entry = entries.nextElement();
-                    String name = entry.getName();
-                    if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
-                    java.io.InputStream in = zip.getInputStream(entry);
-                    byte[] dex = in.readAllBytes();
-                    in.close();
-                    java.util.List<String> calls = DexTypes.callerReads(dex, "aklx", "a", 24);
-                    if (calls.isEmpty()) continue;
-                    log("timeline parent: %s", calls.get(0));
-                    int logged = 1;
-                    for (int i = 1; i < calls.size(); i++) {
-                        String call = calls.get(i);
-                        String lower = call.toLowerCase(java.util.Locale.US);
-                        if (!(lower.contains("country") || lower.contains("operator")
-                                || lower.contains("mcc") || lower.contains("mnc")
-                                || lower.contains("sim") || lower.contains("locale")
-                                || lower.contains("aklx"))) continue;
-                        log("timeline parent read: %s", call);
-                        logged++;
-                    }
-                    if (logged == 1) log("timeline parent reads: none of %d", calls.size() - 1);
-                    return;
-                }
-            } finally {
-                zip.close();
-            }
-        } catch (Throwable t) {
-            log("timeline gate reads failed: %s", t.getClass().getSimpleName());
-        }
-    }
-
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
 
     private void hookTelephonyManager(ClassLoader cl) {
@@ -359,18 +255,10 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
-        // log33 kept the timeline and the aligned map by spoofing only these two
-        // reads inside GMS/GSF. Operator codes and SubscriptionInfo were added
-        // later and did not bring the entry back.
+        // log33 pair: the two country-iso reads plus the system properties. Operator
+        // spoofs (log49+) never produced the entry; do not re-add them silently.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
-        spoofString(tm, "getNetworkCountryIso", FAKE_ISO);
-        spoofString(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
-        spoofString(tm, "getSimOperator", FAKE_MCC_MNC);
-        spoofString(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
-        spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
-        spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
-        spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {

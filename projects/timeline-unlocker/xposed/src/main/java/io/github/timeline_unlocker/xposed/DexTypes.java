@@ -442,4 +442,211 @@ final class DexTypes {
                 | ((b[off + 2] & 0xff) << 16)
                 | ((b[off + 3] & 0xff) << 24);
     }
+
+    // ---- Width-correct decode (log60) ----------------------------------------------------------
+    //
+    // The 2-byte-stepping helpers above can alias operand bytes as invoke opcodes: on the
+    // 26.39 package exactly one phantom "TimelineWrapper.<init> call" was produced that way.
+    // Everything below walks instructions by their true widths, so a reported call is a real
+    // call, and an undecodable opcode reports nothing rather than guessing.
+
+    /** A method found by a width-correct scan, with its callees in first-seen order. */
+    static final class Creator {
+        final String owner;
+        final String name;
+        final String ret;
+        final java.util.List<String> calls;
+        final int targetIndex;
+
+        Creator(String owner, String name, String ret, java.util.List<String> calls, int targetIndex) {
+            this.owner = owner;
+            this.name = name;
+            this.ret = ret;
+            this.calls = calls;
+            this.targetIndex = targetIndex;
+        }
+
+        /** {@code owner->name}, usable to skip this method when hunting its own caller. */
+        String signature() {
+            return owner + "->" + name;
+        }
+    }
+
+    /**
+     * Width-correct hunt for the first method that truly invokes
+     * {@code com.google.android.apps.gmm.mapsactivity.instant.TimelineWrapper.<init>}.
+     * Null when this dex has no decodable caller.
+     */
+    static Creator findCreator(byte[] dex) {
+        return findInvoker(dex, "Lcom/google/android/apps/gmm/mapsactivity/instant/TimelineWrapper;",
+                "<init>", null);
+    }
+
+    /**
+     * Width-correct hunt for the first method that truly invokes any method id whose owner
+     * contains {@code ownerNeedle} and whose name is {@code nameNeedle}. {@code skip} excludes
+     * one signature (the found method itself when walking one level up).
+     */
+    static Creator findInvoker(byte[] dex, String ownerNeedle, String nameNeedle, String skip) {
+        if (dex == null || dex.length < 0x70 || ownerNeedle == null || nameNeedle == null) return null;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int protoOff = u32(dex, 0x4c);
+        int methodOff = u32(dex, 0x5c);
+        int methodIds = u32(dex, 0x58);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (methodIds <= 0 || classDefs <= 0) return null;
+        java.util.List<Integer> targets = new java.util.ArrayList<>();
+        for (int i = 0; i < methodIds; i++) {
+            int pos = methodOff + i * 8;
+            if (pos < 0 || pos + 8 > dex.length) break;
+            if (!nameNeedle.equals(string(dex, stringOff, u32(dex, pos + 4)))) continue;
+            if (typeName(dex, stringOff, typeOff, u16(dex, pos)).contains(ownerNeedle)) targets.add(i);
+        }
+        if (targets.isEmpty()) return null;
+        for (int c = 0; c < classDefs; c++) {
+            int classPos = classOff + c * 32;
+            if (classPos < 0 || classPos + 32 > dex.length) break;
+            String owner = typeName(dex, stringOff, typeOff, u16(dex, classPos));
+            int classDataOff = u32(dex, classPos + 24);
+            if (classDataOff <= 0 || classDataOff >= dex.length) continue;
+            int[] cursor = new int[]{classDataOff};
+            int staticFields = uleb(dex, cursor);
+            int instanceFields = uleb(dex, cursor);
+            int directMethods = uleb(dex, cursor);
+            int virtualMethods = uleb(dex, cursor);
+            skipEncodedFields(dex, cursor, staticFields + instanceFields);
+            int methodIdx = 0;
+            int total = directMethods + virtualMethods;
+            for (int i = 0; i < total; i++) {
+                if (cursor[0] >= dex.length) break;
+                methodIdx += uleb(dex, cursor);
+                uleb(dex, cursor);
+                int codeOff = uleb(dex, cursor);
+                if (codeOff <= 0 || codeOff >= dex.length || methodIdx >= methodIds) continue;
+                int idPos = methodOff + methodIdx * 8;
+                String name = string(dex, stringOff, u32(dex, idPos + 4));
+                if ((owner + "->" + name).equals(skip)) continue;
+                java.util.List<String> calls = new java.util.ArrayList<>();
+                int hit = decodeCallees(dex, codeOff, protoOff, targets, calls, 80);
+                if (hit >= 0) {
+                    String ret = protoReturn(dex, protoOff, u16(dex, idPos + 2));
+                    return new Creator(owner, name, ret, calls, hit);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Walks one method body by real instruction widths. Returns the position in {@code calls}
+     * of the first invoke of a target id (-1 when none or undecodable); {@code calls} holds
+     * the invokes seen, each as {@code owner->name ret}.
+     */
+    private static int decodeCallees(byte[] dex, int codeOff, int protoOff,
+            java.util.List<Integer> targets, java.util.List<String> calls, int cap) {
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int methodOff = u32(dex, 0x5c);
+        int methodIds = u32(dex, 0x58);
+        int insns = u32(dex, codeOff + 12);
+        int start = codeOff + 16;
+        int end = Math.min(dex.length, start + Math.max(0, insns) * 2);
+        int pc = start;
+        while (pc + 2 <= end) {
+            int op = dex[pc] & 0xff;
+            boolean methodInvoke = (op >= 0x6e && op <= 0x72) || (op >= 0x74 && op <= 0x78);
+            boolean polyInvoke = op == 0xfa || op == 0xfb;
+            if (methodInvoke || polyInvoke) {
+                int bytes = polyInvoke ? 8 : 6;
+                if (pc + bytes > end) return -1;
+                int idx = u16(dex, pc + 2);
+                if (idx >= 0 && idx < methodIds) {
+                    int pos = methodOff + idx * 8;
+                    String line = typeName(dex, stringOff, typeOff, u16(dex, pos)) + "->"
+                            + string(dex, stringOff, u32(dex, pos + 4))
+                            + " " + protoReturn(dex, protoOff, u16(dex, pos + 2));
+                    int index = calls.indexOf(line);
+                    if (index < 0 && calls.size() < cap) {
+                        calls.add(line);
+                        index = calls.size() - 1;
+                    }
+                    if (targets.contains(idx)) return index;
+                }
+                pc += bytes;
+                continue;
+            }
+            int units;
+            if (op == 0x00) {
+                units = nopUnits(dex, pc, end);
+            } else if (op == 0xfc || op == 0xfd) {
+                units = 3; // invoke-custom: callsite id, not a method id; skip without decoding
+            } else {
+                units = insnUnitsOf(op);
+            }
+            if (units <= 0) return -1;
+            pc += units * 2;
+        }
+        return -1;
+    }
+
+    /** Width of the nop / switch-payload at pc in code units. 0 = cannot decode. */
+    private static int nopUnits(byte[] dex, int pc, int end) {
+        if (pc + 2 > end) return 0;
+        int ident = u16(dex, pc);
+        if (ident != 0x0100 && ident != 0x0200 && ident != 0x0300) return 1;
+        if (pc + 8 > end) return 0;
+        int size = u32(dex, pc + 4);
+        long bytes = 8L + size * (ident == 0x0300 ? 2 : (ident == 0x0100 ? 4 : 8));
+        long units = bytes / 2;
+        return pc + units * 2 <= end ? (int) units : 0;
+    }
+
+    /** Width of one non-nop opcode in code units. 0 = unused or unknown: never guess. */
+    private static int insnUnitsOf(int op) {
+        switch (op) {
+            case 0x01: case 0x04: case 0x07:
+            case 0x0a: case 0x0b: case 0x0c: case 0x0d:
+            case 0x0e: case 0x0f: case 0x10: case 0x11:
+            case 0x12: case 0x1d: case 0x1e: case 0x21: case 0x27: case 0x28:
+            case 0x7b: case 0x7c: case 0x7d: case 0x7e: case 0x7f: case 0x80:
+            case 0x81: case 0x82: case 0x83: case 0x84: case 0x85: case 0x86:
+            case 0x87: case 0x88: case 0x89: case 0x8a: case 0x8b: case 0x8c:
+            case 0x8d: case 0x8e: case 0x8f:
+            case 0xb0: case 0xb1: case 0xb2: case 0xb3: case 0xb4: case 0xb5:
+            case 0xb6: case 0xb7: case 0xb8: case 0xb9: case 0xba: case 0xbb:
+            case 0xbc: case 0xbd: case 0xbe: case 0xbf: case 0xc0: case 0xc1:
+            case 0xc2: case 0xc3: case 0xc4: case 0xc5: case 0xc6: case 0xc7:
+            case 0xc8: case 0xc9: case 0xca: case 0xcb: case 0xcc: case 0xcd:
+            case 0xce: case 0xcf:
+                return 1;
+            case 0x02: case 0x05: case 0x08:
+            case 0x13: case 0x15: case 0x19: case 0x1a: case 0x1c:
+            case 0x1f: case 0x20: case 0x22: case 0x23:
+            case 0x29: case 0x2b: case 0x2c:
+                return 2;
+            case 0x03: case 0x06: case 0x09:
+            case 0x14: case 0x16: case 0x17: case 0x1b:
+            case 0x24: case 0x25: case 0x26: case 0x2a:
+            case 0xfa: case 0xfb:
+            case 0xfc: case 0xfd:
+                return 3;
+            case 0x18:
+                return 5;
+            default:
+                if ((op >= 0x2d && op <= 0x3d) || (op >= 0x44 && op <= 0x6d)
+                        || (op >= 0x90 && op <= 0xaf) || (op >= 0xd0 && op <= 0xe2)) return 2;
+                return 0;
+        }
+    }
+
+    /** Return-type descriptor of a method id ("Z" boolean, "V", "L...;", "[..."). "?" unknown. */
+    static String protoReturn(byte[] dex, int protoOff, int protoIdx) {
+        if (dex == null || dex.length < 0x50 || protoOff <= 0 || protoIdx < 0) return "?";
+        int protoIds = u32(dex, 0x48);
+        int pos = protoOff + protoIdx * 12;
+        if (protoIdx >= protoIds || pos + 12 > dex.length) return "?";
+        return typeName(dex, u32(dex, 0x3c), u32(dex, 0x44), u32(dex, pos + 4));
+    }
 }
