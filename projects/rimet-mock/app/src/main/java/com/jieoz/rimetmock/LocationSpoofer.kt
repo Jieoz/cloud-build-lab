@@ -52,13 +52,18 @@ object LocationSpoofer {
     private fun profile(): Profile? {
         val now = SystemClock.elapsedRealtime()
         if (now - cachedAt >= STATE_TTL_MS) {
-            val s = ModulePrefs.state()
+            val s = state()
             cachedEnabled = s.enabled
             cachedActive = s.active
             cachedAt = now
         }
         return if (cachedEnabled) cachedActive else null
     }
+
+    /** Host-side read, pixelify-style: the hook-side remote view (never the service). */
+    private fun state(): MockState = MockState.fromJson(
+        ModulePrefs.remote()?.getString(Constants.K_STATE, null)
+    )
 
     // ---- AMap location hooks (resolved from host classloader) ----------------------------
 

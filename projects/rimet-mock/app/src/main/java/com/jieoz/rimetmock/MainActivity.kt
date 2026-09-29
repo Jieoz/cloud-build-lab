@@ -1,5 +1,7 @@
 package com.jieoz.rimetmock
 
+import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -16,16 +18,16 @@ import androidx.appcompat.app.AppCompatActivity
  * activate it (radio), edit, or delete. Matches the original module's multi-profile model.
  * The editor lives in [EditActivity].
  *
- * Config publishes run on a worker thread (the binder can take up to ~2s to arrive on a cold
- * start), so save/switch handlers never block the UI thread; the status line reflects the
- * result when the publish lands, and the LSPosed-service state line updates live on bind.
+ * Same prefs flow as pixelify-lsp102's ActivityMain: every write goes through
+ * [ModulePrefs.open] (PublishingPrefs), so commit() publishes to the remote store and throws
+ * on failure; the switch handlers show that error and revert.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var state: MockState
+    private lateinit var pref: SharedPreferences
 
     private lateinit var status: TextView
-    private lateinit var serviceStatus: TextView
     private lateinit var publishStatus: TextView
     private lateinit var masterSwitch: CheckBox
     private lateinit var logSwitch: CheckBox
@@ -35,17 +37,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        ModulePrefs.prime(this)
+        pref = ModulePrefs.open(this)
         status = findViewById(R.id.status)
-        serviceStatus = findViewById(R.id.service_status)
         publishStatus = findViewById(R.id.publish_status)
         masterSwitch = findViewById(R.id.master_switch)
         logSwitch = findViewById(R.id.log_switch)
         list = findViewById(R.id.profile_list)
-
-        // Live service-bind indicator: LSPosed pushes the binder asynchronously (uid-state
-        // driven), so the line flips to 已连接 the moment it lands, without a manual refresh.
-        ModulePrefs.onBound = { runOnUiThread { renderServiceStatus() } }
 
         masterSwitch.setOnCheckedChangeListener { _, checked ->
             state = state.copy(enabled = checked)
@@ -55,24 +52,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.add).setOnClickListener {
             startActivity(EditActivity.intent(this, null))
         }
+        findViewById<Button>(R.id.export_log).setOnClickListener { shareDebugLog() }
     }
 
     override fun onResume() {
         super.onResume()
-        state = ModulePrefs.load(this)
+        state = MockState.fromJson(pref.getString(Constants.K_STATE, null))
         render()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        ModulePrefs.onBound = null
     }
 
     private fun render() {
         status.text = if (ModuleUtils.isActive()) getString(R.string.status_active)
         else getString(R.string.status_inactive)
-
-        renderServiceStatus()
 
         masterSwitch.setOnCheckedChangeListener(null)
         masterSwitch.isChecked = state.enabled
@@ -81,7 +72,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         logSwitch.setOnCheckedChangeListener(null)
-        logSwitch.isChecked = ModulePrefs.logEnabledLocal(this)
+        logSwitch.isChecked = pref.getBoolean(Constants.K_LOG, false)
         logSwitch.setOnCheckedChangeListener { _, checked -> persistLogSwitch(checked) }
 
         list.removeAllViews()
@@ -95,29 +86,29 @@ class MainActivity : AppCompatActivity() {
         for (p in state.profiles) list.addView(row(p))
     }
 
-    private fun renderServiceStatus() {
-        val bound = ModulePrefs.isBound
-        serviceStatus.text = if (bound) getString(R.string.service_bound)
-        else getString(R.string.service_unbound)
-        publishStatus.text = ""
+    /** pixelify-style: open the Downloads app where DebugLog wrote its file. */
+    private fun shareDebugLog() {
+        Toast.makeText(this, R.string.debug_log_hint, Toast.LENGTH_LONG).show()
+        runCatching {
+            startActivity(Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS))
+        }
     }
 
     private fun persistLogSwitch(checked: Boolean) {
-        Thread {
-            val ok = ModulePrefs.setLogEnabled(this, checked)
-            runOnUiThread {
-                if (ok) {
-                    publishStatus.text = ""
-                    Toast.makeText(
-                        this,
-                        if (checked) R.string.log_on_toast else R.string.log_off_toast,
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    showPublishError()
-                }
+        try {
+            pref.edit().run {
+                putBoolean(Constants.K_LOG, checked)
+                commit()
             }
-        }.start()
+            Toast.makeText(
+                this,
+                if (checked) R.string.log_on_toast else R.string.log_off_toast,
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (failure: Throwable) {
+            logSwitch.isChecked = !checked
+            showPublishError(failure)
+        }
     }
 
     private fun row(p: Profile): View {
@@ -164,18 +155,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun persist() {
-        Thread {
-            val ok = ModulePrefs.save(this, state)
-            runOnUiThread {
-                if (ok) publishStatus.text = "" else showPublishError()
+        try {
+            val ok = pref.edit().run {
+                putString(Constants.K_STATE, state.toJson())
+                commit()
             }
-        }.start()
+            if (!ok) throw IllegalStateException("commit returned false")
+            publishStatus.text = ""
+        } catch (failure: Throwable) {
+            showPublishError(failure)
+        }
     }
 
-    private fun showPublishError() {
+    private fun showPublishError(failure: Throwable) {
         publishStatus.text = getString(
             R.string.publish_failed,
-            ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
+            ModulePrefs.lastPublishError ?: failure.javaClass.simpleName
         )
     }
 }

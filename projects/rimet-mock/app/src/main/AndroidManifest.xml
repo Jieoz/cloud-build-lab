@@ -35,14 +35,6 @@
         <activity
             android:name=".EditActivity"
             android:exported="false" />
-
-        <!-- Binder-free config channel: the host (DingTalk) reads config straight from this
-             app when LSPosed never pushes the XposedService binder. Same trick as the
-             original module's ProfileProvider. Caller-checked in ConfigProvider. -->
-        <provider
-            android:name=".ConfigProvider"
-            android:authorities="com.jieoz.rimetmock.config"
-            android:exported="true" />
     </application>
 
 </manifest>

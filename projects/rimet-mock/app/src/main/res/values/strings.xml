@@ -10,10 +10,8 @@
     <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启钉钉生效）</string>
     <string name="log_on_toast">调试日志已开启：彻底重启钉钉后开始记录（Download/RimetMock/）</string>
     <string name="log_off_toast">调试日志已关闭：彻底重启钉钉后生效</string>
-    <string name="publish_failed">本地已保存（直连通道即已生效），仅远端镜像同步失败：%1$s</string>
+    <string name="publish_failed">保存失败（%1$s）。请确认 LSPosed 管理器在运行、本模块已启用并勾选作用域；若刚打开本应用请稍候几秒重试。</string>
     <string name="publish_failed_unknown">XposedService 未绑定</string>
-    <string name="service_bound">LSPosed 服务：已连接</string>
-    <string name="service_unbound">LSPosed 服务：未连接（直连通道工作中，配置照常生效）</string>
     <string name="add_profile">＋ 新建位置</string>
     <string name="profiles_title">已保存位置</string>
     <string name="no_profiles">还没有保存的位置，点上方新建。</string>
@@ -45,4 +43,6 @@
     <string name="captured">已读取当前定位与环境</string>
     <string name="err_coords">请填写有效的经纬度</string>
     <string name="hint">坐标为高德/GCJ-02 坐标系。勾选某个位置为激活项并打开总开关后，回钉钉重新触发定位即可生效。地址文字仅用于显示，钉钉打卡范围按经纬度距离判定。</string>
+    <string name="debug_log_hint">日志文件在 Download/RimetMock/（钉钉重启并触发定位后写入）</string>
+    <string name="view_log">查看调试日志</string>
 </resources>

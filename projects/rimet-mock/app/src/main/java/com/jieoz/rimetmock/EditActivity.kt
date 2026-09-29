@@ -41,7 +41,9 @@ class EditActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_edit)
 
-        state = ModulePrefs.load(this)
+        state = MockState.fromJson(
+            ModulePrefs.open(this).getString(Constants.K_STATE, null)
+        )
         editing = intent.getStringExtra(EXTRA_ID)?.let { id -> state.profiles.firstOrNull { it.id == id } }
 
         editing?.let { p ->
@@ -150,27 +152,24 @@ class EditActivity : AppCompatActivity() {
             profiles = others + p,
             activeId = state.activeId ?: id  // first profile becomes active by default
         )
-        // Publish on a worker thread: a cold start can need up to ~2s for LSPosed to push
-        // the service binder, and blocking the UI thread that long is a jank/ANR risk.
-        Thread {
-            val ok = ModulePrefs.save(this, newState)
-            runOnUiThread {
-                if (ok) {
-                    Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
-                    finish()
-                } else {
-                    // Local write landed but the host will never see it — keep the editor
-                    // open and say so instead of pretending the save worked.
-                    Toast.makeText(
-                        this,
-                        getString(
-                            R.string.publish_failed,
-                            ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
-                        ),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+        // Same save flow as pixelify: PublishingPrefs.commit() publishes and throws on
+        // failure; keep the editor open and say so instead of pretending it worked.
+        try {
+            ModulePrefs.open(this).edit().run {
+                putString(Constants.K_STATE, newState.toJson())
+                commit()
             }
-        }.start()
+            Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
+            finish()
+        } catch (failure: Throwable) {
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.publish_failed,
+                    ModulePrefs.lastPublishError ?: failure.javaClass.simpleName
+                ),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 }

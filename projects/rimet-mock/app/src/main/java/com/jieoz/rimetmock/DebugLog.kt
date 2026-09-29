@@ -16,15 +16,11 @@ import java.util.Locale
 import java.util.UUID
 
 /**
- * Same sink as the sibling modules: the hooked app writes the file itself.
+ * Same sink as the sibling modules (pixelify-lsp102): the hooked app writes the file itself.
  *
  * DingTalk cannot resolve a ContentProvider owned by this module, so the host process writes
  * Download/RimetMock/. The name is the date plus a random suffix chosen once per process.
  * Lines logged before the host Application binds are queued and flushed after [bind].
- *
- * EVERYTHING in here is gated by [setEnabled] (default OFF): when the switch is off there is
- * no queue, no thread and no disk write — the only cost is one boolean check per call site.
- * Install-time diagnostics never come through here; they go to the LSPosed manager log.
  */
 object DebugLog {
     const val TAG = "RimetMock"
@@ -53,9 +49,8 @@ object DebugLog {
         enabled = value
     }
 
-    /** No-op unless the switch is on: one boolean read when off. */
-    fun line(message: String) {
-        if (!enabled) return
+    fun line(message: String, always: Boolean = false) {
+        if (!enabled && !always) return
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
         val row = "$stamp pid=${Process.myPid()} $message\n"
         Log.i(TAG, message)
@@ -70,14 +65,43 @@ object DebugLog {
     private fun write(row: String) {
         val context = host ?: return
         if (Build.VERSION.SDK_INT >= 29 && appendMediaStore(context, row)) return
+        appendFile(row)
         appendAppExternal(context, row)
     }
 
-    /** Permission-free fallback (app-specific dir) — always writable, works below API 29 too. */
+    fun read(context: Context): String {
+        val uri = newest(context)
+        if (uri != null) {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            }.getOrDefault("")
+            if (text.isNotBlank()) return text
+        }
+        return readDirect()
+    }
+
+    private fun readDirect(): String {
+        val dir = File(publicDir(), DIR_NAME)
+        val latest = dir.listFiles { f -> f.name.startsWith("rimetmock-") && f.name.endsWith(EXT) }
+            ?.maxByOrNull { it.lastModified() } ?: return ""
+        return runCatching { latest.readText() }.getOrDefault("")
+    }
+
     private fun appendAppExternal(context: Context, row: String) {
         runCatching {
             val base = context.getExternalFilesDir(null) ?: return
             val dir = File(base, DIR_NAME)
+            dir.mkdirs()
+            File(dir, fileName()).appendText(row)
+        }
+    }
+
+    private fun publicDir(): File =
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+    private fun appendFile(row: String) {
+        runCatching {
+            val dir = File(publicDir(), DIR_NAME)
             dir.mkdirs()
             File(dir, fileName()).appendText(row)
         }
@@ -94,15 +118,32 @@ object DebugLog {
         resolver.openOutputStream(uri, "wa")?.use { it.write(row.toByteArray()) } != null
     }.getOrDefault(false)
 
+    private fun newest(context: Context): Uri? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        val collection = collection()
+        return runCatching {
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+                arrayOf(relativePath(), "rimetmock-%$EXT"),
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+            }
+        }.getOrNull()
+    }
+
     private fun find(context: Context, name: String): Uri? {
+        val collection = collection()
         return context.contentResolver.query(
-            collection(),
+            collection,
             arrayOf(MediaStore.MediaColumns._ID),
             "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
             arrayOf(relativePath(), name),
             null
         )?.use { cursor ->
-            if (cursor.moveToFirst()) ContentUris.withAppendedId(collection(), cursor.getLong(0)) else null
+            if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
         }
     }
 
