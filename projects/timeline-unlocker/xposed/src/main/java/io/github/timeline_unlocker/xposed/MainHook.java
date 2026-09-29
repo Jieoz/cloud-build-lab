@@ -34,10 +34,7 @@ public class MainHook extends XposedModule {
     private static final String PKG_MAPS = "com.google.android.apps.maps";
 
     private static final String FAKE_MCC_MNC = "310030";
-    private static final int FAKE_MCC = 310;
-    private static final int FAKE_MNC = 30;
     private static final String FAKE_ISO = "us";
-    private static final String FAKE_ISO_SUBSCRIPTION = "US";
 
     private final java.util.List<String> early = new java.util.ArrayList<>();
 
@@ -242,82 +239,6 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
-        reportGate();
-    }
-
-    private void reportGate() {
-        String apk = null;
-        try {
-            Class<?> at = Class.forName("android.app.ActivityThread");
-            Object app = at.getMethod("currentApplication").invoke(null);
-            if (app != null) apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
-        } catch (Throwable t) {
-            log("timeline gate path failed: %s", t.getClass().getSimpleName());
-            return;
-        }
-        if (apk == null) return;
-        java.util.List<String> calls = new java.util.ArrayList<>();
-        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
-            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements() && calls.isEmpty()) {
-                java.util.zip.ZipEntry entry = entries.nextElement();
-                String name = entry.getName();
-                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
-                calls.addAll(DexTypes.invokesOf(
-                        readAll(zip.getInputStream(entry)), "aklx", "a", "TimelineWrapper", 12));
-            }
-        } catch (Throwable t) {
-            log("timeline gate failed: %s", t.getClass().getSimpleName());
-            return;
-        }
-        if (calls.isEmpty()) {
-            log("timeline gate: none");
-            return;
-        }
-        for (String call : calls) log("timeline gate: %s", call);
-    }
-
-    private void reportTimelineCallers() {
-        String apk = null;
-        try {
-            Class<?> at = Class.forName("android.app.ActivityThread");
-            Object app = at.getMethod("currentApplication").invoke(null);
-            if (app != null) {
-                apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
-            }
-        } catch (Throwable t) {
-            log("timeline callers path failed: %s", t.getClass().getSimpleName());
-            return;
-        }
-        if (apk == null) return;
-        java.util.List<String> callers = new java.util.ArrayList<>();
-        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
-            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements() && callers.size() < 8) {
-                java.util.zip.ZipEntry entry = entries.nextElement();
-                String name = entry.getName();
-                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
-                callers.addAll(DexTypes.methodsContaining(
-                        readAll(zip.getInputStream(entry)), "TimelineWrapper", 8 - callers.size()));
-            }
-        } catch (Throwable t) {
-            log("timeline callers failed: %s", t.getClass().getSimpleName());
-            return;
-        }
-        if (callers.isEmpty()) {
-            log("timeline callers: none");
-            return;
-        }
-        for (String caller : callers) log("timeline caller: %s", caller);
-    }
-
-    private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
-        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int n;
-        while ((n = in.read(chunk)) >= 0) buf.write(chunk, 0, n);
-        in.close();
-        return buf.toByteArray();
     }
 
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
@@ -330,31 +251,11 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
+        // log33 kept the timeline and the aligned map by spoofing only these two
+        // reads inside GMS/GSF. Operator codes and SubscriptionInfo were added
+        // later and did not bring the entry back.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
-        spoofString(tm, "getNetworkCountryIso", FAKE_ISO);
-        spoofString(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
-        spoofString(tm, "getSimOperator", FAKE_MCC_MNC);
-        spoofString(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
-        spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
-        spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
-        spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
-        hookSubscription(cl);
-    }
-
-    private void hookSubscription(ClassLoader cl) {
-        Class<?> subInfo;
-        try {
-            subInfo = cl.loadClass("android.telephony.SubscriptionInfo");
-        } catch (Throwable t) {
-            log("SubscriptionInfo not found: %s", t);
-            return;
-        }
-        hookAllReturning(subInfo, "getCountryIso", FAKE_ISO_SUBSCRIPTION);
-        hookAllReturning(subInfo, "getMccString", "310");
-        hookAllReturning(subInfo, "getMncString", "030");
-        hookAllReturning(subInfo, "getMcc", FAKE_MCC);
-        hookAllReturning(subInfo, "getMnc", FAKE_MNC);
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {
