@@ -10,8 +10,10 @@
     <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启钉钉生效）</string>
     <string name="log_on_toast">调试日志已开启：彻底重启钉钉后开始记录（Download/RimetMock/）</string>
     <string name="log_off_toast">调试日志已关闭：彻底重启钉钉后生效</string>
-    <string name="publish_failed">配置发布失败（%1$s）。钉钉读到的仍是旧配置——请确认 LSPosed 已激活本模块后再试。</string>
+    <string name="publish_failed">配置发布失败（%1$s）。请确认 LSPosed 管理器在运行、本模块已启用；若刚打开本应用，等上方显示"LSPosed 服务：已连接"再保存。</string>
     <string name="publish_failed_unknown">XposedService 未绑定</string>
+    <string name="service_bound">LSPosed 服务：已连接</string>
+    <string name="service_unbound">LSPosed 服务：连接中…（刚打开请稍候，或从后台切出再切回）</string>
     <string name="add_profile">＋ 新建位置</string>
     <string name="profiles_title">已保存位置</string>
     <string name="no_profiles">还没有保存的位置，点上方新建。</string>

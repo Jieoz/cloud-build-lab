@@ -15,12 +15,17 @@ import androidx.appcompat.app.AppCompatActivity
  * Profile list + master switch + diagnostic log switch. Each row shows a profile, lets you
  * activate it (radio), edit, or delete. Matches the original module's multi-profile model.
  * The editor lives in [EditActivity].
+ *
+ * Config publishes run on a worker thread (the binder can take up to ~2s to arrive on a cold
+ * start), so save/switch handlers never block the UI thread; the status line reflects the
+ * result when the publish lands, and the LSPosed-service state line updates live on bind.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var state: MockState
 
     private lateinit var status: TextView
+    private lateinit var serviceStatus: TextView
     private lateinit var publishStatus: TextView
     private lateinit var masterSwitch: CheckBox
     private lateinit var logSwitch: CheckBox
@@ -30,29 +35,23 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        ModulePrefs.prime(this)
         status = findViewById(R.id.status)
+        serviceStatus = findViewById(R.id.service_status)
         publishStatus = findViewById(R.id.publish_status)
         masterSwitch = findViewById(R.id.master_switch)
         logSwitch = findViewById(R.id.log_switch)
         list = findViewById(R.id.profile_list)
 
+        // Live service-bind indicator: LSPosed pushes the binder asynchronously (uid-state
+        // driven), so the line flips to 已连接 the moment it lands, without a manual refresh.
+        ModulePrefs.onBound = { runOnUiThread { renderServiceStatus() } }
+
         masterSwitch.setOnCheckedChangeListener { _, checked ->
             state = state.copy(enabled = checked)
             persist()
         }
-        logSwitch.setOnCheckedChangeListener { _, checked ->
-            val ok = ModulePrefs.setLogEnabled(this, checked)
-            if (ok) {
-                publishStatus.text = ""
-                Toast.makeText(
-                    this,
-                    if (checked) R.string.log_on_toast else R.string.log_off_toast,
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                showPublishError()
-            }
-        }
+        logSwitch.setOnCheckedChangeListener { _, checked -> persistLogSwitch(checked) }
         findViewById<Button>(R.id.add).setOnClickListener {
             startActivity(EditActivity.intent(this, null))
         }
@@ -64,9 +63,16 @@ class MainActivity : AppCompatActivity() {
         render()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        ModulePrefs.onBound = null
+    }
+
     private fun render() {
         status.text = if (ModuleUtils.isActive()) getString(R.string.status_active)
         else getString(R.string.status_inactive)
+
+        renderServiceStatus()
 
         masterSwitch.setOnCheckedChangeListener(null)
         masterSwitch.isChecked = state.enabled
@@ -76,19 +82,7 @@ class MainActivity : AppCompatActivity() {
 
         logSwitch.setOnCheckedChangeListener(null)
         logSwitch.isChecked = ModulePrefs.logEnabledLocal(this)
-        logSwitch.setOnCheckedChangeListener { _, checked ->
-            val ok = ModulePrefs.setLogEnabled(this, checked)
-            if (ok) {
-                publishStatus.text = ""
-                Toast.makeText(
-                    this,
-                    if (checked) R.string.log_on_toast else R.string.log_off_toast,
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                showPublishError()
-            }
-        }
+        logSwitch.setOnCheckedChangeListener { _, checked -> persistLogSwitch(checked) }
 
         list.removeAllViews()
         if (state.profiles.isEmpty()) {
@@ -99,6 +93,31 @@ class MainActivity : AppCompatActivity() {
             return
         }
         for (p in state.profiles) list.addView(row(p))
+    }
+
+    private fun renderServiceStatus() {
+        val bound = ModulePrefs.isBound
+        serviceStatus.text = if (bound) getString(R.string.service_bound)
+        else getString(R.string.service_unbound)
+        publishStatus.text = ""
+    }
+
+    private fun persistLogSwitch(checked: Boolean) {
+        Thread {
+            val ok = ModulePrefs.setLogEnabled(this, checked)
+            runOnUiThread {
+                if (ok) {
+                    publishStatus.text = ""
+                    Toast.makeText(
+                        this,
+                        if (checked) R.string.log_on_toast else R.string.log_off_toast,
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    showPublishError()
+                }
+            }
+        }.start()
     }
 
     private fun row(p: Profile): View {
@@ -145,8 +164,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun persist() {
-        val ok = ModulePrefs.save(this, state)
-        if (ok) publishStatus.text = "" else showPublishError()
+        Thread {
+            val ok = ModulePrefs.save(this, state)
+            runOnUiThread {
+                if (ok) publishStatus.text = "" else showPublishError()
+            }
+        }.start()
     }
 
     private fun showPublishError() {

@@ -18,6 +18,14 @@
             android:text="@string/status_inactive" />
 
         <TextView
+            android:id="@+id/service_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:text="@string/service_unbound" />
+
+        <TextView
             android:id="@+id/publish_status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
