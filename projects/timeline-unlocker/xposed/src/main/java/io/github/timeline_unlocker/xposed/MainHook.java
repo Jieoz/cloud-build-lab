@@ -57,11 +57,11 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
+            // Maps must read the real country. A spoofed us here makes Maps skip its
+            // own GCJ correction, so the live-location rewrite stacks on top and the
+            // blue dot shifts. Timeline stays via the same spoof in GMS and GSF.
             hookSemanticLocationPoint(cl);
-            hookLocationGcj02();
             hookTimelineReads(cl, false);
-            hookTelephonyManager(cl);
-            hookSystemProperties(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
