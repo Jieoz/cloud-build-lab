@@ -30,9 +30,9 @@ object LocationSpoofer {
 
     // The config is a single small JSON doc. DingTalk may consult the profile on every
     // location callback (several times per second), so re-parsing JSON per call is wasted
-    // work. Cache with a short TTL; config edits apply on the next DingTalk start anyway
-    // (the log switch is read-once, and profile edits go with a force-stop too in practice).
-    private const val STATE_TTL_MS = 3_000L
+    // work. Cache with a short TTL; the underlying read is either an in-memory remote-prefs
+    // mirror or a binder-free provider query — both cheap, and a 1s TTL keeps edits snappy.
+    private const val STATE_TTL_MS = 1_000L
 
     @Volatile
     private var cachedAt: Long = Long.MIN_VALUE

@@ -43,6 +43,7 @@ class RimetMockModule : XposedModule() {
                 Application::class.java.getDeclaredMethod("onCreate"),
                 HookBridge.Before { call ->
                     val app = call.chainThis as? Application ?: return@Before
+                    HostContext.app = app
                     DebugLog.bind(app)
                     DebugLog.line("application onCreate ${param.packageName}")
                 }

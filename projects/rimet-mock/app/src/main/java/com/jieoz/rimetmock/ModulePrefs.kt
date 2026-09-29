@@ -2,6 +2,7 @@ package com.jieoz.rimetmock
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.SystemClock
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.service.XposedService
@@ -90,13 +91,53 @@ object ModulePrefs {
         context.applicationContext.getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
 
     /** Host-side read: the current state, or an empty default before anything is saved. */
-    fun state(): MockState = MockState.fromJson(
-        framework?.getRemotePreferences(Constants.PREFS)?.getString(Constants.K_STATE, null)
-    )
+    fun state(): MockState = MockState.fromJson(framework?.let { readRemoteString(it, Constants.K_STATE) })
 
     /** Host-side read of the diagnostic log switch. Defaults closed (fail closed). */
     fun logEnabled(): Boolean =
-        framework?.getRemotePreferences(Constants.PREFS)?.getBoolean(Constants.K_LOG, false) ?: false
+        framework?.let { readRemoteBoolean(it, Constants.K_LOG) } ?: false
+
+    /**
+     * Host-side provider fallback. On some devices / LSPosed builds the service binder is
+     * never pushed to the module app, so the app cannot PUBLISH to the remote store — but the
+     * HOST can always reach the module app's own ConfigProvider (same channel the original
+     * module used). When the app is unbound the local file is the freshest copy anyway: the
+     * UI writes there first, and the provider serves it straight from disk.
+     */
+    private fun readRemoteString(base: XposedInterface, key: String): String? {
+        val remote = try {
+            base.getRemotePreferences(Constants.PREFS).getString(key, null)
+        } catch (_: Throwable) {
+            null
+        }
+        if (remote != null) return remote
+        return parseProviderState(providerQuery(ConfigProvider.URI_STATE, Constants.K_STATE))
+    }
+
+    private fun readRemoteBoolean(base: XposedInterface, key: String): Boolean {
+        val remote = try {
+            base.getRemotePreferences(Constants.PREFS).getBoolean(key, false)
+        } catch (_: Throwable) {
+            false
+        }
+        if (remote) return true
+        return providerQuery(ConfigProvider.URI_LOG, Constants.K_LOG) == "1"
+    }
+
+    private fun providerQuery(uri: Uri, column: String): String? = try {
+        HostContext.app!!.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(c.getColumnIndexOrThrow(column)) else null
+        }
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** Parse the provider's state JSON and re-serialize through the same model, so a null/empty result collapses to null. */
+    private fun parseProviderState(row: String?): String? {
+        if (row.isNullOrEmpty()) return null
+        val s = MockState.fromJson(row)
+        return if (s.profiles.isEmpty() && !s.enabled) null else s.toJson()
+    }
 
     /** App-side convenience: last locally-written state (authoritative for the UI). */
     fun load(context: Context): MockState =
@@ -105,18 +146,24 @@ object ModulePrefs {
     fun logEnabledLocal(context: Context): Boolean =
         localPrefs(context).getBoolean(Constants.K_LOG, false)
 
-    /** App-side save: local write first, then publish. False = publish failed (see [lastPublishError]). */
+    /**
+     * App-side save: the LOCAL write is the authoritative truth — the host reads it live via
+     * [ConfigProvider] with no publish step. The XposedService publish is a best-effort
+     * mirror for the remote-prefs read path and its failure no longer fails the save.
+     */
     fun save(context: Context, state: MockState): Boolean {
         val local = localPrefs(context)
-        local.edit().putString(Constants.K_STATE, state.toJson()).commit()
-        return publishToRemote(local)
+        val okLocal = local.edit().putString(Constants.K_STATE, state.toJson()).commit()
+        val okRemote = publishToRemote(local)
+        return okLocal && (okRemote || service == null) // unbound = provider channel serves it
     }
 
     /** App-side log-switch write. Same contract as [save]. */
     fun setLogEnabled(context: Context, value: Boolean): Boolean {
         val local = localPrefs(context)
-        local.edit().putBoolean(Constants.K_LOG, value).commit()
-        return publishToRemote(local)
+        val okLocal = local.edit().putBoolean(Constants.K_LOG, value).commit()
+        val okRemote = publishToRemote(local)
+        return okLocal && (okRemote || service == null)
     }
 
     /**
