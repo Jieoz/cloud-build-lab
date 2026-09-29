@@ -292,24 +292,29 @@ public class MainHook extends XposedModule {
             java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk);
             try {
                 java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-                int logged = 0;
-                while (entries.hasMoreElements() && logged == 0) {
+                while (entries.hasMoreElements()) {
                     java.util.zip.ZipEntry entry = entries.nextElement();
                     String name = entry.getName();
                     if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
                     java.io.InputStream in = zip.getInputStream(entry);
                     byte[] dex = in.readAllBytes();
                     in.close();
-                    java.util.List<String> calls = DexTypes.invokesOf(dex, "aklx", "a", "TimelineWrapper", 24);
-                    for (String call : calls) {
+                    java.util.List<String> calls = DexTypes.callerReads(dex, "aklx", "a", 24);
+                    if (calls.isEmpty()) continue;
+                    log("timeline parent: %s", calls.get(0));
+                    int logged = 1;
+                    for (int i = 1; i < calls.size(); i++) {
+                        String call = calls.get(i);
                         String lower = call.toLowerCase(java.util.Locale.US);
                         if (!(lower.contains("country") || lower.contains("operator")
                                 || lower.contains("mcc") || lower.contains("mnc")
-                                || lower.contains("sim") || lower.contains("timeline"))) continue;
-                        log("timeline gate read: %s", call);
+                                || lower.contains("sim") || lower.contains("locale")
+                                || lower.contains("aklx"))) continue;
+                        log("timeline parent read: %s", call);
                         logged++;
                     }
-                    if (!calls.isEmpty() && logged == 0) log("timeline gate reads: none of %d", calls.size());
+                    if (logged == 1) log("timeline parent reads: none of %d", calls.size() - 1);
+                    return;
                 }
             } finally {
                 zip.close();
