@@ -110,7 +110,10 @@ public class MainHook extends XposedModule {
                         if (pkg.equals(context.getPackageName()) && isMainProcess(pkg)) {
                             boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
                             DiagLog.bind(context, on);
-                            if (PKG_MAPS.equals(pkg)) reportTimelineClasses(context.getClassLoader());
+                            if (PKG_MAPS.equals(pkg)) {
+                                reportTimelineClasses(context.getClassLoader());
+                                reportGateReads(context);
+                            }
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
                             } else {
@@ -276,22 +279,16 @@ public class MainHook extends XposedModule {
             }
         }
         log("timeline gate methods %d", hooked);
-        reportGateReads(cl, gate);
     }
 
     /**
      * aklx.a can construct TimelineWrapper and this launch never entered it. Decode only that
      * one method and log the country/operator reads it contains. Do not scan the rest of the dex.
+     * Must run after Application exists; package load has no code path yet.
      */
-    private void reportGateReads(ClassLoader cl, Class<?> gate) {
+    private void reportGateReads(Context context) {
         try {
-            Object app = Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
-            if (app == null) {
-                log("timeline gate reads path failed");
-                return;
-            }
-            String apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+            String apk = context.getPackageCodePath();
             java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk);
             try {
                 java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
