@@ -61,6 +61,7 @@ public class MainHook extends XposedModule {
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
             hookTelephonyManager(cl);
+            hookTimelineGate(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
@@ -275,6 +276,50 @@ public class MainHook extends XposedModule {
             }
         }
         log("timeline gate methods %d", hooked);
+        reportGateReads(cl, gate);
+    }
+
+    /**
+     * aklx.a can construct TimelineWrapper and this launch never entered it. Decode only that
+     * one method and log the country/operator reads it contains. Do not scan the rest of the dex.
+     */
+    private void reportGateReads(ClassLoader cl, Class<?> gate) {
+        try {
+            Object app = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            if (app == null) {
+                log("timeline gate reads path failed");
+                return;
+            }
+            String apk = (String) app.getClass().getMethod("getPackageCodePath").invoke(app);
+            java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk);
+            try {
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                int logged = 0;
+                while (entries.hasMoreElements() && logged == 0) {
+                    java.util.zip.ZipEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                    java.io.InputStream in = zip.getInputStream(entry);
+                    byte[] dex = in.readAllBytes();
+                    in.close();
+                    java.util.List<String> calls = DexTypes.invokesOf(dex, "aklx", "a", "TimelineWrapper", 24);
+                    for (String call : calls) {
+                        String lower = call.toLowerCase(java.util.Locale.US);
+                        if (!(lower.contains("country") || lower.contains("operator")
+                                || lower.contains("mcc") || lower.contains("mnc")
+                                || lower.contains("sim") || lower.contains("timeline"))) continue;
+                        log("timeline gate read: %s", call);
+                        logged++;
+                    }
+                    if (!calls.isEmpty() && logged == 0) log("timeline gate reads: none of %d", calls.size());
+                }
+            } finally {
+                zip.close();
+            }
+        } catch (Throwable t) {
+            log("timeline gate reads failed: %s", t.getClass().getSimpleName());
+        }
     }
 
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------

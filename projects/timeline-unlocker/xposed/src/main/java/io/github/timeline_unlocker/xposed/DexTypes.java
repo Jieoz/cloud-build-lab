@@ -171,6 +171,84 @@ final class DexTypes {
     }
 
     /**
+     * Methods whose body invokes {@code ownerNeedle}. Stops after {@code limit} hits.
+     * Does not decode every method name in the dex.
+     */
+    static java.util.List<String> callersOf(byte[] dex, String ownerNeedle, int limit) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x74 || ownerNeedle == null || limit <= 0) return found;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int methodIds = u32(dex, 0x58);
+        int methodOff = u32(dex, 0x5c);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (methodIds <= 0 || classDefs <= 0) return found;
+        boolean[] want = new boolean[methodIds];
+        boolean any = false;
+        for (int i = 0; i < methodIds; i++) {
+            int pos = methodOff + i * 8;
+            if (pos < 0 || pos + 8 > dex.length) break;
+            String owner = typeName(dex, stringOff, typeOff, u16(dex, pos));
+            if (ownerNeedle.equals(owner) || ("L" + ownerNeedle + ";").equals(owner) || owner.contains(ownerNeedle)) {
+                want[i] = true;
+                any = true;
+            }
+        }
+        if (!any) return found;
+        for (int c = 0; c < classDefs && found.size() < limit; c++) {
+            int classPos = classOff + c * 32;
+            if (classPos < 0 || classPos + 32 > dex.length) break;
+            int classDataOff = u32(dex, classPos + 24);
+            if (classDataOff <= 0 || classDataOff >= dex.length) continue;
+            int[] cursor = new int[]{classDataOff};
+            int staticFields = uleb(dex, cursor);
+            int instanceFields = uleb(dex, cursor);
+            int directMethods = uleb(dex, cursor);
+            int virtualMethods = uleb(dex, cursor);
+            skipEncodedFields(dex, cursor, staticFields + instanceFields);
+            markCallers(dex, cursor, directMethods, methodOff, stringOff, typeOff, want, found, limit);
+            markCallers(dex, cursor, virtualMethods, methodOff, stringOff, typeOff, want, found, limit);
+        }
+        return found;
+    }
+
+    private static void markCallers(byte[] dex, int[] cursor, int count, int methodOff, int stringOff,
+            int typeOff, boolean[] want, java.util.List<String> found, int limit) {
+        int methodIdx = 0;
+        for (int i = 0; i < count && found.size() < limit; i++) {
+            if (cursor[0] >= dex.length) return;
+            methodIdx += uleb(dex, cursor);
+            uleb(dex, cursor);
+            int codeOff = uleb(dex, cursor);
+            if (codeOff <= 0 || codeOff >= dex.length || methodIdx < 0 || methodIdx >= want.length) continue;
+            int insns = u32(dex, codeOff + 12);
+            int start = codeOff + 16;
+            int end = Math.min(dex.length, start + Math.max(0, insns) * 2);
+            boolean hit = false;
+            for (int pc = start; pc + 4 <= end; ) {
+                int op = dex[pc] & 0xff;
+                int width = insnWidth(dex, pc, end);
+                if (width < 2) break;
+                if ((op >= 0x6e && op <= 0x72) || op == 0x74 || op == 0x75 || op == 0x76 || op == 0x78) {
+                    int idx = (dex[pc + 2] & 0xff) | ((dex[pc + 3] & 0xff) << 8);
+                    if (idx >= 0 && idx < want.length && want[idx]) {
+                        hit = true;
+                        break;
+                    }
+                }
+                pc += width;
+            }
+            if (!hit) continue;
+            int pos = methodOff + methodIdx * 8;
+            if (pos < 0 || pos + 8 > dex.length) continue;
+            String line = typeName(dex, stringOff, typeOff, u16(dex, pos)) + "->"
+                    + string(dex, stringOff, u32(dex, pos + 4));
+            if (!found.contains(line)) found.add(line);
+        }
+    }
+
+    /**
      * Invoke targets of one named method. Walks only that method's code, then stops.
      * A full-dex invoke walk on the startup path hangs Maps.
      */
