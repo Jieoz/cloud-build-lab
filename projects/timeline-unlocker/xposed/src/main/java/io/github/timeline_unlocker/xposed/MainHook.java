@@ -311,45 +311,18 @@ public class MainHook extends XposedModule {
     }
 
     private void hookSubscription(ClassLoader cl) {
-        for (String name : new String[]{
-                "android.telephony.SubscriptionInfo",
-                "android.telephony.SubscriptionManager"}) {
-            Class<?> type;
-            try {
-                type = cl.loadClass(name);
-            } catch (Throwable t) {
-                log("subscription class missing: %s", name);
-                continue;
-            }
-            for (Method method : type.getDeclaredMethods()) {
-                String member = method.getName();
-                if (!TimelineProbe.relevant(name, member)) continue;
-                if (method.getReturnType() == int.class) {
-                    String lower = member.toLowerCase(java.util.Locale.US);
-                    Object numeric = null;
-                    if (lower.contains("mcc") && !lower.contains("mnc")) numeric = FAKE_MCC;
-                    else if (lower.contains("mnc") && !lower.contains("mcc")) numeric = FAKE_MNC;
-                    if (numeric != null) hookAllReturning(type, member, numeric);
-                    continue;
-                }
-                if (method.getReturnType() != String.class) continue;
-                String fake = subscriptionValue(member, type.getSimpleName());
-                if (fake == null) continue;
-                spoofString(type, member, fake);
-            }
+        Class<?> subInfo;
+        try {
+            subInfo = cl.loadClass("android.telephony.SubscriptionInfo");
+        } catch (Throwable t) {
+            log("SubscriptionInfo not found: %s", t);
+            return;
         }
-    }
-
-    private static String subscriptionValue(String member, String owner) {
-        String name = member.toLowerCase(java.util.Locale.US);
-        if (name.contains("country")) {
-            return owner.endsWith("SubscriptionInfo") ? FAKE_ISO_SUBSCRIPTION : FAKE_ISO;
-        }
-        if (name.contains("mcc") && name.contains("mnc")) return FAKE_MCC_MNC;
-        if (name.contains("mcc")) return "310";
-        if (name.contains("mnc")) return "030";
-        if (name.contains("operator")) return FAKE_MCC_MNC;
-        return null;
+        hookAllReturning(subInfo, "getCountryIso", FAKE_ISO_SUBSCRIPTION);
+        hookAllReturning(subInfo, "getMccString", "310");
+        hookAllReturning(subInfo, "getMncString", "030");
+        hookAllReturning(subInfo, "getMcc", FAKE_MCC);
+        hookAllReturning(subInfo, "getMnc", FAKE_MNC);
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {
