@@ -61,7 +61,7 @@ public class MainHook extends XposedModule {
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
             hookTelephonyManager(cl);
-            hookTimelineGate(cl);
+            hookTimelineOpen(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
@@ -112,7 +112,6 @@ public class MainHook extends XposedModule {
                             DiagLog.bind(context, on);
                             if (PKG_MAPS.equals(pkg)) {
                                 reportTimelineClasses(context.getClassLoader());
-                                reportGateReads(context);
                             }
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
@@ -246,6 +245,32 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
+    }
+
+    /**
+     * Both methods that call the timeline builder skip it when {@code bvsu.i()} is true.
+     * That check is not a country or operator read. Force it false inside Maps only.
+     * No dex walk: the class is loaded when Maps starts.
+     */
+    private void hookTimelineOpen(ClassLoader cl) {
+        Class<?> gate;
+        try {
+            gate = cl.loadClass("bvsu");
+        } catch (Throwable t) {
+            log("timeline open class missing: %s", t.getClass().getSimpleName());
+            return;
+        }
+        int hooked = 0;
+        for (Method method : gate.getDeclaredMethods()) {
+            if (!method.getName().equals("i") || method.getReturnType() != boolean.class) continue;
+            try {
+                hook(method).intercept(chain -> Boolean.FALSE);
+                hooked++;
+            } catch (Throwable t) {
+                log("timeline open hook failed: %s", t.getClass().getSimpleName());
+            }
+        }
+        log("timeline open hooked %d", hooked);
     }
 
     /**
