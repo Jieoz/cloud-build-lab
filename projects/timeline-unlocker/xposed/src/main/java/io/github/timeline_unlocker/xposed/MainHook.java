@@ -59,6 +59,7 @@ public class MainHook extends XposedModule {
             // blue dot shifts. Timeline stays via the same spoof in GMS and GSF.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
+            hookTimelineGate(cl);
         } else {
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
@@ -229,6 +230,7 @@ public class MainHook extends XposedModule {
             Constructor<?>[] ctors = type.getDeclaredConstructors();
             for (Constructor<?> ctor : ctors) {
                 hook(ctor).intercept(chain -> {
+                    timelineOpened = true;
                     noteProbe("ctor", binary, "new", "opened");
                     return chain.proceed();
                 });
@@ -239,6 +241,39 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
+    }
+
+    /**
+     * The only method that constructs TimelineWrapper is obfuscated {@code aklx.a}.
+     * Its body contains the constructor invoke, but Maps returns before reaching it.
+     * Record the values that method actually reads, then whether the constructor ran.
+     * Nothing here walks the APK dex; the method is hooked only when Maps calls it.
+     */
+    private void hookTimelineGate(ClassLoader cl) {
+        Class<?> gate;
+        try {
+            gate = cl.loadClass("aklx");
+        } catch (Throwable t) {
+            log("timeline gate class missing: %s", t.getClass().getSimpleName());
+            return;
+        }
+        int hooked = 0;
+        for (Method method : gate.getDeclaredMethods()) {
+            if (!method.getName().equals("a")) continue;
+            try {
+                hook(method).intercept(chain -> {
+                    log("timeline gate entered %s", method);
+                    Object result = chain.proceed();
+                    log("timeline gate returned %s opened=%s result=%s",
+                            method, timelineOpened, result);
+                    return result;
+                });
+                hooked++;
+            } catch (Throwable t) {
+                log("timeline gate hook failed: %s", t.getClass().getSimpleName());
+            }
+        }
+        log("timeline gate methods %d", hooked);
     }
 
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
@@ -340,6 +375,7 @@ public class MainHook extends XposedModule {
 
     private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
+    private volatile boolean timelineOpened;
 
     private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
         String[] names = gmsSide
