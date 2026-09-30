@@ -58,6 +58,22 @@ class EditActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.capture).setOnClickListener { capture() }
         findViewById<Button>(R.id.save).setOnClickListener { save() }
+        f(R.id.pair).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { applyPair(s?.toString().orEmpty()) }
+        })
+    }
+
+    /** "39.552039,108.687141" fills the two boxes. A half-typed value is left alone. */
+    private fun applyPair(raw: String) {
+        val parts = raw.trim().split(Regex("[,，\s]+")).filter { it.isNotEmpty() }
+        if (parts.size != 2) return
+        val lat = parts[0].toDoubleOrNull() ?: return
+        val lng = parts[1].toDoubleOrNull() ?: return
+        if (kotlin.math.abs(lat) > 90.0 || kotlin.math.abs(lng) > 180.0) return
+        if (f(R.id.lat).text.toString() != parts[0]) f(R.id.lat).setText(parts[0])
+        if (f(R.id.lng).text.toString() != parts[1]) f(R.id.lng).setText(parts[1])
     }
 
     private fun f(id: Int) = findViewById<EditText>(id)

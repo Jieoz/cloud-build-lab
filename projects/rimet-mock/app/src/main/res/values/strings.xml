@@ -29,6 +29,7 @@
     <string name="name_hint">例如：公司</string>
     <string name="capture">读取当前定位与环境</string>
     <string name="env_captured">已捕获环境快照：WiFi %1$d 个 / 基站 %2$d 个</string>
+    <string name="pair">坐标（纬度,经度）</string>
     <string name="lat">纬度 (latitude)</string>
     <string name="lng">经度 (longitude)</string>
     <string name="accuracy">精度 (米)</string>

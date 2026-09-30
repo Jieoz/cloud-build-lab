@@ -26,6 +26,9 @@
             android:textSize="12sp"
             android:paddingBottom="8dp" />
 
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/pair" />
+        <EditText android:id="@+id/pair" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:hint="39.552039,108.687141" />
+
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/lat" />
         <EditText android:id="@+id/lat" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="numberSigned|numberDecimal" android:hint="31.230416" />
 

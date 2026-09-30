@@ -86,12 +86,14 @@ object DebugLog {
         // It must be written on EVERY line. MediaStore/Download are additional copies;
         // a successful insert must not suppress the file he is looking at.
         val ext = appendAppExternal(context, row)
-        val ms = if (Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
-        val file = if (!ms) appendFile(row) else false
+        val file = appendFile(row)
+        if (file != null) indexDownload(context, file)
+        val ms = if (file == null && Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
         val summary = buildString {
             append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
-            append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
-            if (!ms) append(if (file) "; download-file ok" else "; download-file FAILED")
+            append(if (file != null) "; download-file -> ${file.absolutePath} (indexed=${indexError == null})" else "; download-file FAILED")
+            if (file == null) append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
+            if (indexError != null) append("; index FAILED ($indexError)")
         }
         if (summary != reportedSink) {
             reportedSink = summary
@@ -134,24 +136,36 @@ object DebugLog {
     private fun publicDir(): File =
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
-    private fun appendFile(row: String): Boolean = runCatching {
+    @Volatile
+    private var indexError: String? = null
+
+    private fun appendFile(row: String): File? = runCatching {
         val dir = File(publicDir(), DIR_NAME)
         dir.mkdirs()
         val f = File(dir, fileName())
         f.appendText(row)
-        // A raw File write into public Download is on disk but INVISIBLE to file managers and the
-        // Files app until the media database indexes it. DingTalk (host) has no MANAGE_EXTERNAL,
-        // so MediaStore.insert above failed and we landed here — meaning nothing indexed the file.
-        // Kick MediaScanner so MT Manager / Files show it. Async, no permission needed.
-        host?.let { ctx ->
-            runCatching {
-                android.media.MediaScannerConnection.scanFile(
-                    ctx, arrayOf(f.absolutePath), arrayOf("text/plain"), null
-                )
+        f
+    }.getOrNull()
+
+    /** insert(Downloads) returns null inside DingTalk. Register the file that already exists. */
+    private fun indexDownload(context: Context, file: File) {
+        indexError = null
+        if (Build.VERSION.SDK_INT < 29) return
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath())
+                put(MediaStore.MediaColumns.DATA, file.absolutePath)
+                put(MediaStore.MediaColumns.SIZE, file.length())
             }
+            if (context.contentResolver.insert(collection(), values) == null) {
+                indexError = "insert(DATA) returned null"
+            }
+        } catch (t: Throwable) {
+            indexError = t.javaClass.simpleName + ": " + t.message
         }
-        true
-    }.getOrDefault(false)
+    }
 
     private fun appendMediaStore(context: Context, row: String): Boolean {
         mediaStoreError = null
