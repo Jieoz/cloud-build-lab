@@ -83,8 +83,8 @@ jobs:
           PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
           printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
           printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
-          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
-          echo "$SCOPE" | grep -q 'com.alibaba.android.rimet'
+          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list)
+          printf '%s\n' "$SCOPE" | grep -qx '\*'
           # legacy entry/prefs must be gone
           if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
             echo "::error::legacy assets/xposed_init survived packaging"; exit 1
