@@ -653,28 +653,63 @@ public class MainHook extends XposedModule {
 
     /** Re-runs the gate's refresh callback on the main thread, once per payload. */
     private void nudgeRefresh(Object self) {
-        Runnable callback = null;
-        for (Class<?> type = self.getClass(); type != null && type != Object.class && callback == null; type = type.getSuperclass()) {
+        if (!refreshed.add(self)) return;
+        Object binder = null;
+        for (Class<?> type = self.getClass(); type != null && type != Object.class && binder == null; type = type.getSuperclass()) {
             for (java.lang.reflect.Field field : type.getDeclaredFields()) {
                 if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
-                if (field.getType() != Runnable.class) continue;
+                if (field.getType().isPrimitive() || field.getType().getName().startsWith("java.")) continue;
                 try {
                     field.setAccessible(true);
-                    callback = (Runnable) field.get(self);
-                } catch (Throwable ignored) {
-                }
+                    Object value = field.get(self);
+                    if (value != null && !registeredRows(value.getClass()).isEmpty()) { binder = value; break; }
+                } catch (Throwable ignored) {}
             }
         }
-        if (callback == null || !refreshed.add(self)) return;
-        Runnable task = callback;
+        if (binder == null) { log("timeline redraw: no binder"); return; }
+        java.util.Set<Object> rows = registeredRows(binder.getClass());
+        if (rows.isEmpty()) { log("timeline redraw: no rows"); return; }
+        Object target = binder;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-            try {
-                task.run();
-                log("timeline refresh posted");
-            } catch (Throwable t) {
-                log("timeline refresh failed: %s", t.getClass().getSimpleName());
+            int called = 0;
+            for (Object row : rows) {
+                for (Method method : target.getClass().getDeclaredMethods()) {
+                    Class<?>[] params = method.getParameterTypes();
+                    if (params.length != 1 || !params[0].isInstance(row)) continue;
+                    try { method.setAccessible(true); method.invoke(target, row); called++; }
+                    catch (Throwable t) { log("timeline redraw failed: %s", t.getClass().getSimpleName()); }
+                }
             }
+            log("timeline redraw: rows=%d called=%d", rows.size(), called);
         });
+    }
+
+    private static java.util.Set<Object> registeredRows(Class<?> binder) {
+        java.util.Set<Object> rows = new java.util.LinkedHashSet<>();
+        for (Class<?> type = binder; type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    collectRows(field.get(null), rows, 0);
+                } catch (Throwable ignored) {}
+            }
+        }
+        return rows;
+    }
+
+    private static void collectRows(Object value, java.util.Set<Object> rows, int depth) {
+        if (value == null || depth > 2) return;
+        if (value instanceof java.util.Collection) {
+            for (Object item : (java.util.Collection<?>) value) if (item != null) rows.add(item);
+            return;
+        }
+        if (value.getClass().getName().startsWith("java.")) return;
+        for (java.lang.reflect.Field field : value.getClass().getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+            try { field.setAccessible(true); collectRows(field.get(value), rows, depth + 1); }
+            catch (Throwable ignored) {}
+        }
     }
 
     /** Logs each call of the method that inserts the Timeline row, and whether it got a row. */
