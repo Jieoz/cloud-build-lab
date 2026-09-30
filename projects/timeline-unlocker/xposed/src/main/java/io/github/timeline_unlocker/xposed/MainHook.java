@@ -623,28 +623,39 @@ public class MainHook extends XposedModule {
         }
     }
 
-    /** The boxed flag and every sized object the gate reads, taken off the live object. */
+    /** Every instance field on the gate object, so a return flip can be matched to a field. */
     private static String entryState(Object self) {
         if (self == null) return "self=null";
-        String flag = "?";
-        StringBuilder lists = new StringBuilder();
-        for (java.lang.reflect.Field field : self.getClass().getDeclaredFields()) {
-            try {
-                field.setAccessible(true);
-                Object value = field.get(self);
-                if (value instanceof Boolean) flag = String.valueOf(value);
-                else if (value != null && !(value instanceof String) && !(value instanceof Number)) {
-                    try {
-                        Object size = value.getClass().getMethod("size").invoke(value);
-                        if (lists.length() > 0) lists.append(',');
-                        lists.append(value.getClass().getSimpleName()).append('=').append(size);
-                    } catch (Throwable ignored) {
+        StringBuilder out = new StringBuilder();
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (out.length() > 0) out.append(' ');
+                out.append(field.getName()).append(':');
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(self);
+                    if (value == null) {
+                        out.append(field.getType().getSimpleName()).append("=null");
+                    } else if (value instanceof Boolean || value instanceof Number || value instanceof String) {
+                        String text = String.valueOf(value);
+                        out.append(text.length() > 24 ? text.substring(0, 24) : text);
+                    } else {
+                        String sized = null;
+                        try {
+                            sized = value.getClass().getSimpleName() + "#"
+                                    + value.getClass().getMethod("size").invoke(value);
+                        } catch (Throwable ignored) {
+                        }
+                        out.append(sized != null ? sized : value.getClass().getSimpleName());
                     }
+                } catch (Throwable ignored) {
+                    out.append("err");
                 }
-            } catch (Throwable ignored) {
+                if (out.length() > 280) return out.append('…').toString();
             }
         }
-        return "flag=" + flag + " list=" + (lists.length() == 0 ? "?" : lists);
+        return out.length() == 0 ? "nofields" : out.toString();
     }
 
     private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
