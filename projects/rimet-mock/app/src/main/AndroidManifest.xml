@@ -12,6 +12,16 @@
         <package android:name="com.alibaba.android.rimet" />
     </queries>
 
+    <!-- REQUIRED: Android 11+ package visibility. Without this the module app cannot
+         resolve LSPosed's XposedService provider, so XposedServiceHelper never receives
+         the binder, the module reports 服务未连接/未激活, and LSPosed does not inject it
+         into DingTalk (no logs, no location). Same block the working sibling declares. -->
+    <queries>
+        <intent>
+            <action android:name="io.github.libxposed.service.provider" />
+        </intent>
+    </queries>
+
     <application
         android:label="@string/app_name"
         android:supportsRtl="true"

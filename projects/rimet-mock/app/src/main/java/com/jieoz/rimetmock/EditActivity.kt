@@ -118,11 +118,24 @@ class EditActivity : AppCompatActivity() {
     private fun blankProfile() = Profile(id = "", name = "", latitude = 0.0, longitude = 0.0)
 
     private fun save() {
-        val lat = f(R.id.lat).text.toString().trim().toDoubleOrNull()
-        val lng = f(R.id.lng).text.toString().trim().toDoubleOrNull()
-        if (lat == null || lng == null) {
+        val rawLat = f(R.id.lat).text.toString().trim().toDoubleOrNull()
+        val rawLng = f(R.id.lng).text.toString().trim().toDoubleOrNull()
+        if (rawLat == null || rawLng == null) {
             Toast.makeText(this, R.string.err_coords, Toast.LENGTH_SHORT).show(); return
         }
+        // A latitude outside ±90 is only possible as micro-degrees (AMap E6 convention, e.g.
+        // 40859545 == 40.859545). Field evidence: a profile saved with lat=4.0859545E7 sailed
+        // through and produced a fix DingTalk can never use. Heal E6 automatically; validate hard.
+        var lat = rawLat
+        var lng = rawLng
+        if (kotlin.math.abs(lat) > 90.0) lat /= 1_000_000.0
+        if (kotlin.math.abs(lng) > 180.0) lng /= 1_000_000.0
+        if (kotlin.math.abs(lat) > 90.0 || kotlin.math.abs(lng) > 180.0) {
+            Toast.makeText(this, R.string.err_coords, Toast.LENGTH_SHORT).show(); return
+        }
+        // Write the healed values back so what the user sees == what is stored.
+        f(R.id.lat).setText(lat.toString())
+        f(R.id.lng).setText(lng.toString())
         val name = f(R.id.name).text.toString().trim().ifEmpty {
             String.format("%.5f, %.5f", lat, lng)
         }
@@ -152,24 +165,28 @@ class EditActivity : AppCompatActivity() {
             profiles = others + p,
             activeId = state.activeId ?: id  // first profile becomes active by default
         )
-        // Same save flow as pixelify: PublishingPrefs.commit() publishes and throws on
-        // failure; keep the editor open and say so instead of pretending it worked.
-        try {
-            ModulePrefs.open(this).edit().run {
-                putString(Constants.K_STATE, newState.toJson())
-                commit()
-            }
+        // The local write is staged even when the LSPosed binder has not arrived yet; the
+        // bind listener republishes it. Stay on this screen only when the remote publish
+        // itself failed for a real reason, so a saved profile is never silently dropped.
+        val published = ModulePrefs.open(this).edit().run {
+            putString(Constants.K_STATE, newState.toJson())
+            commit()
+        }
+        if (published) {
             Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
             finish()
-        } catch (failure: Throwable) {
+        } else if (ModulePrefs.isBound) {
             Toast.makeText(
                 this,
                 getString(
                     R.string.publish_failed,
-                    ModulePrefs.lastPublishError ?: failure.javaClass.simpleName
+                    ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
                 ),
                 Toast.LENGTH_LONG
             ).show()
+        } else {
+            Toast.makeText(this, R.string.saved_pending, Toast.LENGTH_LONG).show()
+            finish()
         }
     }
 }

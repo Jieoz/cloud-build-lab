@@ -34,8 +34,12 @@ object LocationSpoofer {
     // mirror or a binder-free provider query — both cheap, and a 1s TTL keeps edits snappy.
     private const val STATE_TTL_MS = 1_000L
 
+    // MUST stay 0, not Long.MIN_VALUE. The refresh test is `now - cachedAt >= TTL`.
+    // Long.MIN_VALUE underflows that subtraction to a large negative, so the first
+    // state() (taken at install, which DID see the saved profile) is frozen forever
+    // and every later hook callback treats the profile as absent.
     @Volatile
-    private var cachedAt: Long = Long.MIN_VALUE
+    private var cachedAt: Long = 0L
 
     @Volatile
     private var cachedEnabled: Boolean = false
@@ -44,9 +48,15 @@ object LocationSpoofer {
     private var cachedActive: Profile? = null
 
     fun install(param: XposedModuleInterface.PackageReadyParam) {
-        val cl = param.classLoader ?: return
+        val cl = param.classLoader
+        if (cl == null) {
+            log("install: classLoader is NULL; nothing hookable in this process")
+            return
+        }
+        log("install: begin, resolving AMap classes from host classloader")
         installAMapHooks(cl)
         installEnvHooks()
+        log("install: done")
     }
 
     private fun profile(): Profile? {
@@ -60,10 +70,29 @@ object LocationSpoofer {
         return if (cachedEnabled) cachedActive else null
     }
 
-    /** Host-side read, pixelify-style: the hook-side remote view (never the service). */
-    private fun state(): MockState = MockState.fromJson(
-        ModulePrefs.remote()?.getString(Constants.K_STATE, null)
-    )
+    /** Host-side read of the spoof config from remote prefs. Logged once per refresh so the file
+     *  shows whether DingTalk actually received the saved profile (the gap the two-line log hid). */
+    @Volatile
+    private var lastLoggedConfig: String? = null
+
+    private fun state(): MockState {
+        val s = ModulePrefs.state()
+        val a = s.active
+        val desc = "config read: enabled=${s.enabled} active=${a?.name ?: "none"} " +
+            "lat=${a?.latitude} lng=${a?.longitude} maskEnv=${a?.maskEnv}"
+        if (desc != lastLoggedConfig) {
+            lastLoggedConfig = desc
+            DebugLog.line(desc)
+        }
+        return s
+    }
+
+    /** Diagnostics into the file the user reads. Gated by the log switch (always=false): off means
+     *  no file at all. */
+    private fun log(msg: String) {
+        DebugLog.line(msg)
+        Log.d(Constants.TAG, msg)
+    }
 
     // ---- AMap location hooks (resolved from host classloader) ----------------------------
 
@@ -71,18 +100,26 @@ object LocationSpoofer {
         val clientCls = try {
             cl.loadClass(Constants.CLS_AMAP_CLIENT)
         } catch (_: ClassNotFoundException) {
-            log("AMap SDK not present in host; location hook skipped")
+            log("AMap SDK NOT present in host (${Constants.CLS_AMAP_CLIENT} missing); location hook skipped")
             return
         }
+        log("AMap client class FOUND: ${Constants.CLS_AMAP_CLIENT}")
+        // First config read AT INSTALL TIME — this is evidence point #1: does the host actually
+        // see the profile the module app saved? Never gated on a hook being called later.
+        state()
 
         runCatching {
             val m = clientCls.getMethod("getLastKnownLocation")
             HookBridge.hook(m) { call ->
-                val p = profile() ?: return@hook
+                val p = profile()
+                if (p == null) {
+                    DebugLog.line("getLastKnownLocation() called; no active profile, passing through")
+                    return@hook
+                }
                 buildFakeLocation(cl, p)?.let {
                     call.result = it
-                    DebugLog.line("getLastKnownLocation() replaced (${p.name})")
-                }
+                    DebugLog.line("getLastKnownLocation() replaced (${p.name}) lat=${it.latitude} lng=${it.longitude}")
+                } ?: DebugLog.line("getLastKnownLocation() buildFakeLocation FAILED")
             }
         }.onFailure { log("hook getLastKnownLocation failed: ${it.message}") }
 
@@ -90,7 +127,10 @@ object LocationSpoofer {
             val listenerCls = cl.loadClass(Constants.CLS_AMAP_LISTENER)
             val m = clientCls.getMethod("setLocationListener", listenerCls)
             HookBridge.hook(m) { call ->
-                if (profile() == null) return@hook
+                if (profile() == null) {
+                    DebugLog.line("setLocationListener called but no active profile; not wrapping")
+                    return@hook
+                }
                 val original = call.args.getOrNull(0) ?: return@hook
                 call.args[0] = Proxy.newProxyInstance(
                     cl, arrayOf(listenerCls), SpoofingListener(cl, original)
@@ -137,6 +177,10 @@ object LocationSpoofer {
     private fun applyAll(cl: ClassLoader, loc: Location, p: Profile, jitter: Boolean) {
         var lat = p.latitude
         var lng = p.longitude
+        // Host-side E6 self-heal: the same micro-degree case the editor now rejects, defended here
+        // so an old bad profile still yields a usable fix instead of an impossible one.
+        if (kotlin.math.abs(lat) > 90.0) lat /= 1_000_000.0
+        if (kotlin.math.abs(lng) > 180.0) lng /= 1_000_000.0
         if (jitter) {
             // ~0.1 m great-circle offset in a random direction, matching the original.
             val u = Math.random()
@@ -220,10 +264,4 @@ object LocationSpoofer {
 
     /** The active profile only when env-masking is on; null otherwise (host sees real radio). */
     private fun maskProfile(): Profile? = profile()?.takeIf { it.maskEnv }
-
-    /** Install-time log (LSPosed channel): always on, once per install, negligible cost. */
-    private fun log(msg: String) {
-        runCatching { RimetMockModule.framework.log(Log.DEBUG, Constants.TAG, msg) }
-        Log.d(Constants.TAG, msg)
-    }
 }

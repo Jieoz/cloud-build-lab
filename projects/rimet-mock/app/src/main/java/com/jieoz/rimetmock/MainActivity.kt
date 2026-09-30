@@ -1,7 +1,6 @@
 package com.jieoz.rimetmock
 
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -12,20 +11,23 @@ import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import io.github.libxposed.service.HookedTarget
 
 /**
  * Profile list + master switch + diagnostic log switch. Each row shows a profile, lets you
  * activate it (radio), edit, or delete. Matches the original module's multi-profile model.
  * The editor lives in [EditActivity].
  *
- * Same prefs flow as pixelify-lsp102's ActivityMain: every write goes through
- * [ModulePrefs.open] (PublishingPrefs), so commit() publishes to the remote store and throws
- * on failure; the switch handlers show that error and revert.
+ * Writes go through [ModulePrefs.open]. [commit] returns whether the remote publish happened;
+ * a false means the LSPosed binder has not arrived yet, so the switch is greyed out and the
+ * staged value is republished automatically when it does. The status line reports what
+ * LSPosed itself says about DingTalk ([XposedService.getRunningTargets]), not whether this
+ * app's own process happens to be injected.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var state: MockState
-    private lateinit var pref: SharedPreferences
+    private lateinit var pref: ModulePrefs.PublishingPrefs
 
     private lateinit var status: TextView
     private lateinit var publishStatus: TextView
@@ -38,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         pref = ModulePrefs.open(this)
+        ModulePrefs.onServiceChanged = { runOnUiThread { refreshConnection() } }
         status = findViewById(R.id.status)
         publishStatus = findViewById(R.id.publish_status)
         masterSwitch = findViewById(R.id.master_switch)
@@ -61,9 +64,39 @@ class MainActivity : AppCompatActivity() {
         render()
     }
 
+    override fun onDestroy() {
+        if (ModulePrefs.onServiceChanged != null) ModulePrefs.onServiceChanged = null
+        super.onDestroy()
+    }
+
+    /**
+     * Status comes from LSPosed's own target list, which names the hooked process — that is
+     * how a mounted DingTalk becomes visible. The switches stay disabled until the binder is
+     * here, because a write before that cannot reach the host.
+     */
+    private fun refreshConnection() {
+        val targets = ModulePrefs.runningTargets()
+        val ding = targets[Constants.HOST_DINGTALK]
+        val bound = ModulePrefs.isBound
+        status.text = when {
+            ding != null -> getString(R.string.status_dingtalk_hooked, stateLabel(ding))
+            bound -> getString(R.string.status_dingtalk_not_running)
+            else -> getString(R.string.status_service_down)
+        }
+        masterSwitch.isEnabled = true
+        logSwitch.isEnabled = true
+        publishStatus.text = if (bound) "" else getString(R.string.publish_waiting)
+    }
+
+    private fun stateLabel(target: HookedTarget): String = when (target.state) {
+        HookedTarget.State.UP_TO_DATE -> getString(R.string.target_up_to_date)
+        HookedTarget.State.STALE -> getString(R.string.target_stale)
+        HookedTarget.State.RELOADING -> getString(R.string.target_reloading)
+        HookedTarget.State.FAILED -> getString(R.string.target_failed)
+    }
+
     private fun render() {
-        status.text = if (ModuleUtils.isActive()) getString(R.string.status_active)
-        else getString(R.string.status_inactive)
+        refreshConnection()
 
         masterSwitch.setOnCheckedChangeListener(null)
         masterSwitch.isChecked = state.enabled
@@ -94,20 +127,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The switch is one boolean published to remote prefs, exactly like every other setting.
+     * DingTalk reads it once at process start, so the toast tells the user to force-stop
+     * DingTalk for the change to take effect.
+     */
     private fun persistLogSwitch(checked: Boolean) {
-        try {
-            pref.edit().run {
-                putBoolean(Constants.K_LOG, checked)
-                commit()
-            }
+        val published = pref.edit().run {
+            putBoolean(Constants.K_LOG, checked)
+            commit()
+        }
+        if (published) {
+            publishStatus.text = ""
             Toast.makeText(
                 this,
                 if (checked) R.string.log_on_toast else R.string.log_off_toast,
                 Toast.LENGTH_LONG
             ).show()
-        } catch (failure: Throwable) {
-            logSwitch.isChecked = !checked
-            showPublishError(failure)
+        } else {
+            publishStatus.text = getString(
+                R.string.publish_failed,
+                ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
+            )
         }
     }
 
@@ -155,22 +196,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun persist() {
-        try {
-            val ok = pref.edit().run {
-                putString(Constants.K_STATE, state.toJson())
-                commit()
-            }
-            if (!ok) throw IllegalStateException("commit returned false")
-            publishStatus.text = ""
-        } catch (failure: Throwable) {
-            showPublishError(failure)
+        val published = pref.edit().run {
+            putString(Constants.K_STATE, state.toJson())
+            commit()
         }
-    }
-
-    private fun showPublishError(failure: Throwable) {
-        publishStatus.text = getString(
+        publishStatus.text = if (published) "" else getString(
             R.string.publish_failed,
-            ModulePrefs.lastPublishError ?: failure.javaClass.simpleName
+            ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
         )
     }
 }

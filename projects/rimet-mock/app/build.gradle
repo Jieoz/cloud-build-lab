@@ -11,8 +11,8 @@ android {
         applicationId "com.jieoz.rimetmock"
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName "0.2.3-lsp102"
+        versionCode 26
+        versionName "0.2.24-lsp102"
     }
 
     buildFeatures {
@@ -69,4 +69,5 @@ dependencies {
     // XposedService (app-side remote-prefs write channel). Bundled: it is a normal library,
     // not the framework api — same arrangement as the sibling modules.
     implementation files('libs/libxposed-service-102.0.0.aar')
+    implementation files('libs/libxposed-interface-102.0.0.aar')
 }

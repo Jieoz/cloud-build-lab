@@ -5,6 +5,13 @@
 
     <string name="status_active">模块已激活</string>
     <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选钉钉与本应用作用域）</string>
+    <string name="status_service_down">未检测到钉钉挂载。作用域只勾钉钉即可；本应用不用勾。</string>
+    <string name="status_dingtalk_not_running">LSPosed 已连接，但钉钉当前没有在跑。打开钉钉后再回来，这里会显示挂载状态。</string>
+    <string name="status_dingtalk_hooked">钉钉已挂载（%1$s）</string>
+    <string name="target_up_to_date">当前版本</string>
+    <string name="target_stale">版本过期，需重启钉钉</string>
+    <string name="target_reloading">正在重载</string>
+    <string name="target_failed">挂载失败</string>
 
     <string name="enable_mock">总开关：启用模拟定位</string>
     <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启钉钉生效）</string>
@@ -12,6 +19,8 @@
     <string name="log_off_toast">调试日志已关闭：彻底重启钉钉后生效</string>
     <string name="publish_failed">保存失败（%1$s）。请确认 LSPosed 管理器在运行、本模块已启用并勾选作用域；若刚打开本应用请稍候几秒重试。</string>
     <string name="publish_failed_unknown">XposedService 未绑定</string>
+    <string name="publish_waiting">直连通道已生效：配置不经过 LSPosed 服务，开关可以改。</string>
+    <string name="saved_pending">已暂存：LSPosed 服务连上后自动发布，无需再保存一次。</string>
     <string name="add_profile">＋ 新建位置</string>
     <string name="profiles_title">已保存位置</string>
     <string name="no_profiles">还没有保存的位置，点上方新建。</string>

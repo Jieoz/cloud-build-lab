@@ -15,7 +15,7 @@
             android:layout_height="wrap_content"
             android:textStyle="bold"
             android:paddingBottom="4dp"
-            android:text="@string/status_inactive" />
+            android:text="@string/status_service_down" />
 
         <TextView
             android:id="@+id/publish_status"
