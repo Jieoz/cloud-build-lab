@@ -570,20 +570,29 @@ public class MainHook extends XposedModule {
      */
     private void watchEntryGate(Context context) {
         try {
-            String apk = context.getApplicationInfo().sourceDir;
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
             String desc = null;
-            try (ZipFile zip = new ZipFile(apk)) {
-                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
-                while (entries.hasMoreElements() && desc == null) {
-                    java.util.zip.ZipEntry entry = entries.nextElement();
-                    String name = entry.getName();
-                    if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
-                    if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
-                    desc = DexTypes.findEntryGate(readEntry(zip, entry));
+            String hitApk = null;
+            for (String apk : apks) {
+                if (desc != null || apk == null) break;
+                try (ZipFile zip = new ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements() && desc == null) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                        desc = DexTypes.findEntryGate(readEntry(zip, entry));
+                        if (desc != null) hitApk = apk;
+                    }
+                } catch (Throwable ignored) {
                 }
             }
             if (desc == null) {
-                log("timeline entry gate: not found");
+                log("timeline entry gate: not found (apks=%d)", apks.size());
                 return;
             }
             String binary = desc.substring(1, desc.length() - 1).replace('/', '.');
@@ -602,7 +611,8 @@ public class MainHook extends XposedModule {
                 });
                 armed++;
             }
-            log("timeline entry gate: %s armed=%d", binary, armed);
+            log("timeline entry gate: %s armed=%d apk=%s", binary, armed,
+                    hitApk == null ? "?" : hitApk.substring(hitApk.lastIndexOf('/') + 1));
         } catch (Throwable t) {
             log("timeline entry gate failed: %s", t.getClass().getSimpleName());
         }
