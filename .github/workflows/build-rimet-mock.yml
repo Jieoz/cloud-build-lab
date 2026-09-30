@@ -82,7 +82,7 @@ jobs:
           test "$ENTRY" = "com.jieoz.rimetmock.RimetMockModule"
           PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
           printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
-          printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
+          printf '%s\n' "$PROP" | grep -qx 'staticScope=false'
           SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list)
           printf '%s\n' "$SCOPE" | grep -qx '\*'
           # legacy entry/prefs must be gone

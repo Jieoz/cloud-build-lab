@@ -83,17 +83,15 @@ object DebugLog {
 
     private fun write(row: String) {
         val context = host ?: return
-        val ext = appendAppExternal(context, row)
         val main = isMainProcess(context)
         val ms = if (main && Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
         val file = if (main && !ms) appendFile(row) else null
         if (file != null) registerDownload(context, file)
         val summary = buildString {
-            append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
             if (!main) {
-                append("; public log skipped (not main process)")
+                append("public log skipped (not main process)")
             } else {
-                append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
+                append(if (ms) "mediastore -> ${relativePath()}${fileName()}" else "mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
                 append(if (file != null) "; download-file -> ${file.absolutePath}" else if (!ms) "; download-file FAILED" else "")
                 if (!ms) append(if (downloadError == null) "; download-manager registered" else "; download-manager FAILED ($downloadError)")
             }
@@ -101,8 +99,6 @@ object DebugLog {
         if (summary != reportedSink) {
             reportedSink = summary
             runCatching { RimetMockModule.framework.log(Log.INFO, TAG, "log file: $summary") }
-            if (ext) File(File(context.getExternalFilesDir(null), DIR_NAME), fileName())
-                .appendText("log file: $summary\n")
         }
     }
 

@@ -128,15 +128,24 @@ object LocationSpoofer {
             val listenerCls = cl.loadClass(Constants.CLS_AMAP_LISTENER)
             val m = clientCls.getMethod("setLocationListener", listenerCls)
             HookBridge.hook(m) { call ->
-                if (profile() == null) {
+                val p = profile()
+                if (p == null) {
                     DebugLog.line("setLocationListener called but no active profile; not wrapping")
                     return@hook
                 }
                 val original = call.args.getOrNull(0) ?: return@hook
-                call.args[0] = Proxy.newProxyInstance(
+                val proxy = Proxy.newProxyInstance(
                     cl, arrayOf(listenerCls), SpoofingListener(cl, original)
                 )
+                call.args[0] = proxy
                 DebugLog.line("setLocationListener() wrapped")
+                // Push the saved point now. Waiting for the next SDK callback is what makes the
+                // address sit on the old value for a long time.
+                runCatching {
+                    val fake = buildFakeLocation(cl, p) ?: return@runCatching
+                    listenerCls.getMethod("onLocationChanged", fake.javaClass).invoke(proxy, fake)
+                    DebugLog.line("immediate onLocationChanged pushed (${p.name})")
+                }.onFailure { DebugLog.line("immediate push failed: ${it.message}") }
             }
         }.onFailure { log("hook setLocationListener failed: ${it.message}") }
     }
@@ -223,15 +232,21 @@ object LocationSpoofer {
             if (method.parameterTypes.none { listener.isAssignableFrom(it) }) continue
             runCatching {
                 HookBridge.hook(method) { call ->
-                    if (profile() == null) return@hook
+                    val p = profile() ?: return@hook
                     val index = call.args.indexOfFirst { listener.isInstance(it) }
                     val original = call.args.getOrNull(index) ?: return@hook
-                    call.args[index] = Proxy.newProxyInstance(
+                    val proxy = Proxy.newProxyInstance(
                         original.javaClass.classLoader,
                         arrayOf(listener),
                         SystemLocationListener(original)
                     )
+                    call.args[index] = proxy
                     DebugLog.line("requestLocationUpdates wrapped")
+                    runCatching {
+                        listener.getMethod("onLocationChanged", Location::class.java)
+                            .invoke(proxy, buildSystemLocation("gps", p))
+                        DebugLog.line("immediate system onLocationChanged pushed (${p.name})")
+                    }.onFailure { DebugLog.line("immediate system push failed: ${it.message}") }
                 }
             }.onFailure { log("hook ${method.name} failed: ${it.message}") }
         }
