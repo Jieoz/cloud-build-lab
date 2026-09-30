@@ -78,15 +78,22 @@ object DebugLog {
     @Volatile
     private var mediaStoreError: String? = null
 
+    @Volatile
+    private var downloadError: String? = null
+
     private fun write(row: String) {
         val context = host ?: return
         val ext = appendAppExternal(context, row)
         val ms = if (Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
         val file = if (!ms) appendFile(row) else null
+        if (file != null) registerDownload(context, file)
         val summary = buildString {
             append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
             append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
-            if (!ms) append(if (file != null) "; download-file -> ${file.absolutePath}" else "; download-file FAILED")
+            if (!ms) {
+                append(if (file != null) "; download-file -> ${file.absolutePath}" else "; download-file FAILED")
+                append(if (downloadError == null) "; download-manager registered" else "; download-manager FAILED ($downloadError)")
+            }
         }
         if (summary != reportedSink) {
             reportedSink = summary
@@ -136,6 +143,48 @@ object DebugLog {
         f.appendText(row)
         f
     }.getOrNull()
+
+    private fun registerDownload(context: Context, file: File) {
+        downloadError = null
+        try {
+            val managerClass = Class.forName("android.app.DownloadManager")
+            val service = context.getSystemService(Context.DOWNLOAD_SERVICE)
+                ?: run { downloadError = "service null"; return }
+            val uri = Uri.fromFile(file)
+            val queryClass = Class.forName("android.app.DownloadManager\$Query")
+            val query = queryClass.getConstructor().newInstance()
+            val cursor = managerClass.getMethod("query", queryClass).invoke(service, query) as android.database.Cursor
+            val localIndex = cursor.getColumnIndex("local_uri")
+            val exists = cursor.use {
+                if (localIndex < 0) return@use false
+                while (it.moveToNext()) if (it.getString(localIndex) == uri.toString()) return@use true
+                false
+            }
+            if (exists) return
+            val id = managerClass.getMethod(
+                "addCompletedDownload",
+                String::class.java,
+                String::class.java,
+                Boolean::class.javaPrimitiveType,
+                String::class.java,
+                String::class.java,
+                Long::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType
+            ).invoke(
+                service,
+                file.name,
+                "RimetMock log",
+                true,
+                "text/plain",
+                file.absolutePath,
+                file.length(),
+                false
+            ) as Long
+            if (id <= 0L) downloadError = "addCompletedDownload returned $id"
+        } catch (t: Throwable) {
+            downloadError = t.javaClass.simpleName + ": " + (t.cause?.message ?: t.message)
+        }
+    }
 
     private fun appendMediaStore(context: Context, row: String): Boolean {
         mediaStoreError = null
