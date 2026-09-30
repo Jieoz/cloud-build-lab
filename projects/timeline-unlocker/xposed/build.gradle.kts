@@ -4,10 +4,24 @@ plugins {
 
 val verName: String by rootProject.extra
 val verCode: Int by rootProject.extra
-val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE")
-val releaseStorePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS")
-val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD")
+val releaseStoreFile = providers.environmentVariable("RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("RELEASE_KEY_PASSWORD").orNull
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+val requireReleaseSigning = providers.environmentVariable("REQUIRE_RELEASE_SIGNING")
+    .map(String::toBoolean)
+    .orElse(false)
+    .get()
+
+if (requireReleaseSigning && !hasReleaseSigning) {
+    error("Release signing is required but one or more RELEASE_* environment variables are missing")
+}
 
 android {
     namespace = "io.github.timeline_unlocker.xposed"
@@ -22,24 +36,20 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = releaseStoreFile.orElse("/missing-release.jks").map { file(it) }.get()
-            storePassword = releaseStorePassword.orElse("missing").get()
-            keyAlias = releaseKeyAlias.orElse("missing").get()
-            keyPassword = releaseKeyPassword.orElse("missing").get()
-            enableV1Signing = true
-            enableV2Signing = true
-            enableV3Signing = true
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("release")
-        }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -50,10 +60,6 @@ android {
 }
 
 dependencies {
-    compileOnly(libs.libxposed.api)
-    // Writable side for the module's own UI process: XposedService + its XposedProvider.
-    // Bundled (implementation) because LSPosed only provides the hook `api` at runtime.
-    implementation(files("libs/libxposed-service-102.0.0.aar"))
-    implementation(files("libs/libxposed-interface-102.0.0.aar"))
+    compileOnly(libs.xposed.api)
     testImplementation(libs.junit)
 }

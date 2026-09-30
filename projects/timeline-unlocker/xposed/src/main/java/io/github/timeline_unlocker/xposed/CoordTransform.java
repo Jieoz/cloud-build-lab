@@ -33,25 +33,7 @@ public final class CoordTransform {
         return result;
     }
 
-    /**
-     * Maps applies its own GCJ shift while it still reads a China SIM. The timeline
-     * entry needs that read to look like {@code us}, which makes Maps stop shifting.
-     * Undo exactly one shift so the blue dot stays where the China path put it.
-     */
-    public static void undoOneGcj02(double lat, double lng, double[] result) {
-        if (result == null || result.length < 2) {
-            throw new IllegalArgumentException("result must contain at least two elements");
-        }
-        if (!shouldApplyGcj02(lat, lng)) {
-            result[0] = lat;
-            result[1] = lng;
-            return;
-        }
-        double[] shifted = new double[2];
-        wgs84ToGcj02(lat, lng, shifted);
-        result[0] = lat - (shifted[0] - lat);
-        result[1] = lng - (shifted[1] - lng);
-    }
+    /** 将转换结果写入 result[0..1]，用于避免热路径临时数组分配。 */
     public static void wgs84ToGcj02(double lat, double lng, double[] result) {
         if (result == null || result.length < 2) {
             throw new IllegalArgumentException("result must contain at least two elements");

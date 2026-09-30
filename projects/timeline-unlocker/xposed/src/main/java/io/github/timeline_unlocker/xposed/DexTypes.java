@@ -849,6 +849,79 @@ final class DexTypes {
         return false;
     }
 
+    /**
+     * The method that inserts the Timeline menu row. Found by shape: it calls a no-arg method
+     * returning the gate class (the one {@link #findEntryGate} names), then immediately branches on
+     * the result and constructs one fixed class only on the non-null path. Returns
+     * {@code owner->name}, or null. On the 26.38 package that method is {@code aqoz.a}.
+     */
+    static String findRowInserter(byte[] dex, String gateDesc) {
+        if (dex == null || dex.length < 0x70 || gateDesc == null) return null;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int protoOff = u32(dex, 0x4c);
+        int methodOff = u32(dex, 0x5c);
+        int methodIds = u32(dex, 0x58);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (methodIds <= 0 || classDefs <= 0) return null;
+        java.util.List<Integer> getters = new java.util.ArrayList<>();
+        for (int i = 0; i < methodIds; i++) {
+            int mp = methodOff + i * 8;
+            if (mp < 0 || mp + 8 > dex.length) break;
+            int protoIdx = u16(dex, mp + 2);
+            if (!gateDesc.equals(typeName(dex, stringOff, typeOff, u32(dex, protoOff + protoIdx * 12 + 4)))) continue;
+            int paramOff = u32(dex, protoOff + protoIdx * 12 + 8);
+            int nparams = paramOff == 0 ? 0 : (paramOff + 4 <= dex.length ? u32(dex, paramOff) : -1);
+            if (nparams == 0) getters.add(i);
+        }
+        if (getters.isEmpty()) return null;
+        for (int c = 0; c < classDefs; c++) {
+            int cp = classOff + c * 32;
+            if (cp < 0 || cp + 32 > dex.length) break;
+            int data = u32(dex, cp + 24);
+            if (data <= 0 || data >= dex.length) continue;
+            int[] k = new int[]{data};
+            int staticFields = uleb(dex, k);
+            int instanceFields = uleb(dex, k);
+            int direct = uleb(dex, k);
+            int virtual = uleb(dex, k);
+            skipEncodedFields(dex, k, staticFields + instanceFields);
+            String hit = inserterMethod(dex, k, direct, methodOff, stringOff, getters);
+            if (hit == null) hit = inserterMethod(dex, k, virtual, methodOff, stringOff, getters);
+            if (hit != null) return typeName(dex, stringOff, typeOff, u16(dex, cp)) + "->" + hit;
+        }
+        return null;
+    }
+
+    /** Name of a method that calls a gate getter and then branches before constructing a class. */
+    private static String inserterMethod(byte[] dex, int[] k, int count, int methodOff, int stringOff,
+            java.util.List<Integer> getters) {
+        int idx = 0;
+        for (int i = 0; i < count; i++) {
+            idx += uleb(dex, k);
+            uleb(dex, k);
+            int code = uleb(dex, k);
+            if (code <= 0 || code + 16 > dex.length) continue;
+            int insns = u32(dex, code + 12);
+            int start = code + 16;
+            int end = Math.min(dex.length, start + insns * 2);
+            boolean called = false, branched = false, built = false;
+            for (int pc = start; pc + 6 <= end; ) {
+                int op = dex[pc] & 0xff;
+                if (op >= 0x6e && op <= 0x72 && getters.contains(u16(dex, pc + 2))) called = true;
+                else if (called && (op == 0x38 || op == 0x39)) branched = true;
+                else if (branched && op == 0x22) built = true;
+                int u = op == 0x00 ? nopUnits(dex, pc, end) : insnUnitsOf(op);
+                if ((op >= 0x6e && op <= 0x78)) u = 3;
+                if (u <= 0) break;
+                pc += u * 2;
+            }
+            if (called && branched && built) return string(dex, stringOff, u32(dex, methodOff + idx * 8 + 4));
+        }
+        return null;
+    }
+
     private static String fieldType(byte[] dex, int stringOff, int typeOff, int fieldOff, int fieldIdx) {
         int fp = fieldOff + fieldIdx * 8;
         if (fp < 0 || fp + 8 > dex.length) return "";

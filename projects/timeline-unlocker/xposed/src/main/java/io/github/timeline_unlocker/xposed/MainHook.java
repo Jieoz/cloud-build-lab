@@ -576,6 +576,7 @@ public class MainHook extends XposedModule {
             if (splits != null) java.util.Collections.addAll(apks, splits);
             String desc = null;
             String hitApk = null;
+            String rowInserter = null;
             int dexes = 0, unreadable = 0;
             for (String apk : apks) {
                 if (desc != null || apk == null) break;
@@ -590,7 +591,10 @@ public class MainHook extends XposedModule {
                         byte[] bytes = readEntry(zip, entry);
                         if (bytes == null) { unreadable++; continue; }
                         desc = DexTypes.findEntryGate(bytes);
-                        if (desc != null) hitApk = apk;
+                        if (desc != null) {
+                            hitApk = apk;
+                            rowInserter = DexTypes.findRowInserter(bytes, desc);
+                        }
                     }
                 } catch (Throwable ignored) {
                     unreadable++;
@@ -618,8 +622,42 @@ public class MainHook extends XposedModule {
             }
             log("timeline entry gate: %s armed=%d apk=%s", binary, armed,
                     hitApk == null ? "?" : hitApk.substring(hitApk.lastIndexOf('/') + 1));
+            watchRowInserter(context, rowInserter);
         } catch (Throwable t) {
             log("timeline entry gate failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Logs each call of the method that inserts the Timeline row, and whether it got a row. */
+    private void watchRowInserter(Context context, String rowInserter) {
+        try {
+            if (rowInserter == null || !rowInserter.contains("->")) {
+                log("timeline row: not found");
+                return;
+            }
+            String owner = rowInserter.substring(1, rowInserter.indexOf(';')).replace('/', '.');
+            String name = rowInserter.substring(rowInserter.indexOf("->") + 2);
+            Class<?> type = context.getClassLoader().loadClass(owner);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (!method.getName().equals(name)) continue;
+                hook(method).intercept(chain -> {
+                    Object result = chain.proceed();
+                    int rows = -1;
+                    try {
+                        java.lang.reflect.Method size = result.getClass().getMethod("size");
+                        Object n = size.invoke(result);
+                        if (n instanceof Integer) rows = (Integer) n;
+                    } catch (Throwable ignored) {
+                    }
+                    log("timeline row %s -> %s size=%d", name, result == null ? "null" : result.getClass().getSimpleName(), rows);
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline row: %s armed=%d", rowInserter, armed);
+        } catch (Throwable t) {
+            log("timeline row failed: %s", t.getClass().getSimpleName());
         }
     }
 
