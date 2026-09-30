@@ -67,7 +67,7 @@ class EditActivity : AppCompatActivity() {
 
     /** "39.552039,108.687141" fills the two boxes. A half-typed value is left alone. */
     private fun applyPair(raw: String) {
-        val parts = raw.trim().split(Regex("[,，\s]+")).filter { it.isNotEmpty() }
+        val parts = raw.trim().split(Regex("[,， \t]+")).filter { it.isNotEmpty() }
         if (parts.size != 2) return
         val lat = parts[0].toDoubleOrNull() ?: return
         val lng = parts[1].toDoubleOrNull() ?: return
