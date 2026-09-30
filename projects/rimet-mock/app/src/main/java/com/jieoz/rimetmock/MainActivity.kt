@@ -76,11 +76,14 @@ class MainActivity : AppCompatActivity() {
      */
     private fun refreshConnection() {
         val targets = ModulePrefs.runningTargets()
-        val ding = targets[Constants.HOST_DINGTALK]
         val bound = ModulePrefs.isBound
+        val hosts = targets.filterKeys { !it.startsWith(Constants.SELF_PACKAGE) }
         status.text = when {
-            ding != null -> getString(R.string.status_dingtalk_hooked, stateLabel(ding))
-            bound -> getString(R.string.status_dingtalk_not_running)
+            hosts.isNotEmpty() -> getString(
+                R.string.status_hosts_hooked,
+                hosts.entries.joinToString("、") { (name, target) -> "$name（${stateLabel(target)}）" }
+            )
+            bound -> getString(R.string.status_no_host_running)
             else -> getString(R.string.status_service_down)
         }
         masterSwitch.isEnabled = true

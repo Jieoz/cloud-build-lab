@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">锤锤Mock</string>
-    <string name="xposed_description">钉钉模拟定位（LSPosed 2.3 / libxposed API 102 适配版）。仅供开发调试与学习。</string>
+    <string name="xposed_description">通用模拟定位（LSPosed 2.3 / libxposed API 102）。作用域里勾选的应用都会使用你填写的坐标。仅供开发调试与学习。</string>
 
     <string name="status_active">模块已激活</string>
-    <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选钉钉与本应用作用域）</string>
-    <string name="status_service_down">未检测到钉钉挂载。作用域只勾钉钉即可；本应用不用勾。</string>
-    <string name="status_dingtalk_not_running">LSPosed 已连接，但钉钉当前没有在跑。打开钉钉后再回来，这里会显示挂载状态。</string>
-    <string name="status_dingtalk_hooked">钉钉已挂载（%1$s）</string>
+    <string name="status_inactive">模块未激活（请在 LSPosed 中启用并勾选目标应用）</string>
+    <string name="status_service_down">未连接到 LSPosed。请确认模块已启用并勾选作用域。</string>
+    <string name="status_no_host_running">LSPosed 已连接，但作用域里的应用当前都没在跑。打开目标应用后再回来。</string>
+    <string name="status_hosts_hooked">已挂载：%1$s</string>
     <string name="target_up_to_date">当前版本</string>
-    <string name="target_stale">版本过期，需重启钉钉</string>
+    <string name="target_stale">版本过期，需重启该应用</string>
     <string name="target_reloading">正在重载</string>
     <string name="target_failed">挂载失败</string>
 
     <string name="enable_mock">总开关：启用模拟定位</string>
-    <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启钉钉生效）</string>
-    <string name="log_on_toast">调试日志已开启：彻底重启钉钉后开始记录（Download/RimetMock/）</string>
-    <string name="log_off_toast">调试日志已关闭：彻底重启钉钉后生效</string>
+    <string name="enable_diag_log">调试日志（写入 Download/RimetMock/，开启后需重启目标应用生效）</string>
+    <string name="log_on_toast">调试日志已开启：彻底重启目标应用后开始记录（Download/RimetMock/）</string>
+    <string name="log_off_toast">调试日志已关闭：彻底重启目标应用后生效</string>
     <string name="publish_failed">保存失败（%1$s）。请确认 LSPosed 管理器在运行、本模块已启用并勾选作用域；若刚打开本应用请稍候几秒重试。</string>
     <string name="publish_failed_unknown">XposedService 未绑定</string>
     <string name="publish_waiting">直连通道已生效：配置不经过 LSPosed 服务，开关可以改。</string>
@@ -52,7 +52,7 @@
     <string name="saved">已保存</string>
     <string name="captured">已读取当前定位与环境</string>
     <string name="err_coords">请填写有效的经纬度</string>
-    <string name="hint">坐标为高德/GCJ-02 坐标系。勾选某个位置为激活项并打开总开关后，回钉钉重新触发定位即可生效。地址文字仅用于显示，钉钉打卡范围按经纬度距离判定。</string>
-    <string name="debug_log_hint">日志文件在 Download/RimetMock/（钉钉重启并触发定位后写入）</string>
+    <string name="hint">坐标为高德/GCJ-02 坐标系。勾选某个位置为激活项并打开总开关后，重启目标应用再触发定位即可生效。地址文字仅用于显示。</string>
+    <string name="debug_log_hint">日志文件在 Download/RimetMock/（目标应用重启并触发定位后写入）</string>
     <string name="view_log">查看调试日志</string>
 </resources>

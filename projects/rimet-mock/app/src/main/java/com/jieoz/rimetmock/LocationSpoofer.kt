@@ -53,8 +53,9 @@ object LocationSpoofer {
             log("install: classLoader is NULL; nothing hookable in this process")
             return
         }
-        log("install: begin, resolving AMap classes from host classloader")
+        log("install: begin pkg=${param.packageName}")
         installAMapHooks(cl)
+        installSystemHooks()
         installEnvHooks()
         log("install: done")
     }
@@ -175,31 +176,7 @@ object LocationSpoofer {
 
     /** Apply target coordinate + all AMap address fields onto a Location instance. */
     private fun applyAll(cl: ClassLoader, loc: Location, p: Profile, jitter: Boolean) {
-        var lat = p.latitude
-        var lng = p.longitude
-        // Host-side E6 self-heal: the same micro-degree case the editor now rejects, defended here
-        // so an old bad profile still yields a usable fix instead of an impossible one.
-        if (kotlin.math.abs(lat) > 90.0) lat /= 1_000_000.0
-        if (kotlin.math.abs(lng) > 180.0) lng /= 1_000_000.0
-        if (jitter) {
-            // ~0.1 m great-circle offset in a random direction, matching the original.
-            val u = Math.random()
-            val v = Math.random()
-            val dLat = Math.toDegrees(Constants.JITTER_RAD * (2 * u - 1))
-            val dLng = Math.toDegrees(
-                Math.asin(sin(Constants.JITTER_RAD) / cos(Math.toRadians(lat))) * (2 * v - 1)
-            )
-            lat += dLat
-            lng += dLng
-        }
-        loc.latitude = lat
-        loc.longitude = lng
-        loc.accuracy = p.accuracy
-        loc.altitude = p.altitude
-        loc.bearing = p.bearing
-        loc.speed = p.speed
-        loc.time = System.currentTimeMillis()
-        loc.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        applyBase(loc, p, jitter)
 
         // AMap-only string/int fields — reflected on the host class, best-effort.
         val setters = listOf(
@@ -225,6 +202,81 @@ object LocationSpoofer {
         runCatching {
             loc.javaClass.getMethod("setErrorCode", Int::class.javaPrimitiveType).invoke(loc, 0)
         }
+    }
+
+    // ---- Framework location hooks (apps that do not use AMap) ---------------------------
+
+    private fun installSystemHooks() {
+        val lm = android.location.LocationManager::class.java
+        runCatching {
+            HookBridge.hook(lm.getMethod("getLastKnownLocation", String::class.java)) { call ->
+                val p = profile() ?: return@hook
+                val provider = call.args.getOrNull(0) as? String ?: "gps"
+                call.result = buildSystemLocation(provider, p)
+                DebugLog.line("getLastKnownLocation($provider) replaced (${p.name})")
+            }
+        }.onFailure { log("hook LocationManager.getLastKnownLocation failed: ${it.message}") }
+
+        val listener = android.location.LocationListener::class.java
+        for (method in lm.methods) {
+            if (method.name != "requestLocationUpdates") continue
+            if (method.parameterTypes.none { listener.isAssignableFrom(it) }) continue
+            runCatching {
+                HookBridge.hook(method) { call ->
+                    if (profile() == null) return@hook
+                    val index = call.args.indexOfFirst { listener.isInstance(it) }
+                    val original = call.args.getOrNull(index) ?: return@hook
+                    call.args[index] = Proxy.newProxyInstance(
+                        original.javaClass.classLoader,
+                        arrayOf(listener),
+                        SystemLocationListener(original)
+                    )
+                    DebugLog.line("requestLocationUpdates wrapped")
+                }
+            }.onFailure { log("hook ${method.name} failed: ${it.message}") }
+        }
+        log("system location hooks installed")
+    }
+
+    private class SystemLocationListener(private val delegate: Any) : InvocationHandler {
+        override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
+            if (method.name == "onLocationChanged" && args != null && args.isNotEmpty()) {
+                val p = profile()
+                val loc = args[0]
+                if (loc is Location && p != null) {
+                    applyBase(loc, p, jitter = p.jitter)
+                    DebugLog.line("system onLocationChanged rewritten (${p.name})")
+                }
+            }
+            return method.invoke(delegate, *(args ?: emptyArray()))
+        }
+    }
+
+    private fun buildSystemLocation(provider: String, p: Profile): Location =
+        Location(provider).also { applyBase(it, p, jitter = false) }
+
+    /** Coordinate fields only. AMap address setters are applied separately by [applyAll]. */
+    private fun applyBase(loc: Location, p: Profile, jitter: Boolean) {
+        var lat = p.latitude
+        var lng = p.longitude
+        if (kotlin.math.abs(lat) > 90.0) lat /= 1_000_000.0
+        if (kotlin.math.abs(lng) > 180.0) lng /= 1_000_000.0
+        if (jitter) {
+            val u = Math.random()
+            val v = Math.random()
+            lat += Math.toDegrees(Constants.JITTER_RAD * (2 * u - 1))
+            lng += Math.toDegrees(
+                Math.asin(sin(Constants.JITTER_RAD) / cos(Math.toRadians(lat))) * (2 * v - 1)
+            )
+        }
+        loc.latitude = lat
+        loc.longitude = lng
+        loc.accuracy = p.accuracy
+        loc.altitude = p.altitude
+        loc.bearing = p.bearing
+        loc.speed = p.speed
+        loc.time = System.currentTimeMillis()
+        loc.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
     }
 
     // ---- Consistent radio-environment replay (framework types only) ----------------------

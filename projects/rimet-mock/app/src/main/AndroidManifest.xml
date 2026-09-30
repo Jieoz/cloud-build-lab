@@ -7,10 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
-    <!-- So the module app can see the host package for scope resolution. -->
-    <queries>
-        <package android:name="com.alibaba.android.rimet" />
-    </queries>
+    <!-- The module app itself does not need to see every host package. Scope is chosen in LSPosed. -->
 
     <!-- REQUIRED: Android 11+ package visibility. Without this the module app cannot
          resolve LSPosed's XposedService provider, so XposedServiceHelper never receives

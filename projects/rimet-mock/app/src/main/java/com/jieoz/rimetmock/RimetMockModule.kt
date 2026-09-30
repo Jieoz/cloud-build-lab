@@ -67,7 +67,7 @@ class RimetMockModule : XposedModule() {
         // Install AFTER the switch is applied, so install-time diagnostics honour it (off = no file).
         when (param.packageName) {
             Constants.SELF_PACKAGE -> installSelfActiveFlag(param)
-            Constants.HOST_DINGTALK -> LocationSpoofer.install(param)
+            else -> LocationSpoofer.install(param)
         }
     }
 
