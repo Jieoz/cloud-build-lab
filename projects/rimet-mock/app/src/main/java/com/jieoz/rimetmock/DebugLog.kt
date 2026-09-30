@@ -84,15 +84,18 @@ object DebugLog {
     private fun write(row: String) {
         val context = host ?: return
         val ext = appendAppExternal(context, row)
-        val ms = if (Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
-        val file = if (!ms) appendFile(row) else null
+        val main = isMainProcess(context)
+        val ms = if (main && Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
+        val file = if (main && !ms) appendFile(row) else null
         if (file != null) registerDownload(context, file)
         val summary = buildString {
             append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
-            append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
-            if (!ms) {
-                append(if (file != null) "; download-file -> ${file.absolutePath}" else "; download-file FAILED")
-                append(if (downloadError == null) "; download-manager registered" else "; download-manager FAILED ($downloadError)")
+            if (!main) {
+                append("; public log skipped (not main process)")
+            } else {
+                append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
+                append(if (file != null) "; download-file -> ${file.absolutePath}" else if (!ms) "; download-file FAILED" else "")
+                if (!ms) append(if (downloadError == null) "; download-manager registered" else "; download-manager FAILED ($downloadError)")
             }
         }
         if (summary != reportedSink) {
@@ -132,6 +135,14 @@ object DebugLog {
         File(dir, fileName()).appendText(row)
         true
     }.getOrDefault(false)
+
+    private fun isMainProcess(context: Context): Boolean {
+        val name = runCatching {
+            val thread = Class.forName("android.app.ActivityThread")
+            thread.getMethod("currentProcessName").invoke(null) as? String
+        }.getOrNull()
+        return name == null || name == context.packageName
+    }
 
     private fun publicDir(): File =
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -178,7 +189,7 @@ object DebugLog {
                 "text/plain",
                 file.absolutePath,
                 file.length(),
-                false
+                true
             ) as Long
             if (id <= 0L) downloadError = "addCompletedDownload returned $id"
         } catch (t: Throwable) {
