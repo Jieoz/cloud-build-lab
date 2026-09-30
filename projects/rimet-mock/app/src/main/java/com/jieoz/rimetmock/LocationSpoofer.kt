@@ -57,6 +57,7 @@ object LocationSpoofer {
         noteLocationClasses(cl)
         installAMapHooks(cl)
         installTencentHooks(cl)
+        installFusedHooks(cl)
         installSystemHooks()
         installEnvHooks()
         log("install: done")
@@ -286,6 +287,75 @@ object LocationSpoofer {
         )) {
             if (value.isEmpty()) continue
             runCatching { loc.javaClass.getMethod(name, String::class.java).invoke(loc, value) }
+        }
+    }
+
+    // ---- Play services fused location (WeChat on this device) ---------------------------
+
+    private fun installFusedHooks(cl: ClassLoader) {
+        val client = try {
+            cl.loadClass(Constants.CLS_FUSED)
+        } catch (_: ClassNotFoundException) {
+            log("FusedLocationProviderClient NOT present")
+            return
+        }
+        val callback = runCatching {
+            cl.loadClass("com.google.android.gms.location.LocationCallback")
+        }.getOrNull()
+        val result = runCatching {
+            cl.loadClass("com.google.android.gms.location.LocationResult")
+        }.getOrNull()
+        var hooked = 0
+        if (callback != null) {
+            for (method in client.declaredMethods) {
+                if (method.name != "requestLocationUpdates") continue
+                if (method.parameterTypes.none { callback.isAssignableFrom(it) }) continue
+                method.isAccessible = true
+                runCatching {
+                    HookBridge.hook(method) { call ->
+                        val p = profile() ?: return@hook
+                        val index = call.args.indexOfFirst { callback.isInstance(it) }
+                        val original = call.args.getOrNull(index) ?: return@hook
+                        call.args[index] = Proxy.newProxyInstance(
+                            cl, arrayOf(callback), FusedLocationCallback(original, result)
+                        )
+                        DebugLog.line("fused requestLocationUpdates wrapped")
+                    }
+                    hooked++
+                }.onFailure { log("hook fused ${method.name} failed: ${it.message}") }
+            }
+        }
+        for (method in client.declaredMethods) {
+            if (method.name != "getLastLocation") continue
+            method.isAccessible = true
+            runCatching {
+                HookBridge.hook(method) { call ->
+                    val p = profile() ?: return@hook
+                    DebugLog.line("fused getLastLocation called; result is a Task and was NOT replaced")
+                }
+            }.onFailure { log("hook fused getLastLocation failed: ${it.message}") }
+            hooked++
+        }
+        log("fused location hooks installed: $hooked")
+    }
+
+    private class FusedLocationCallback(
+        private val delegate: Any,
+        private val resultClass: Class<*>?
+    ) : InvocationHandler {
+        override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
+            if (method.name == "onLocationResult" && args != null && args.isNotEmpty()) {
+                val p = profile()
+                val value = args[0]
+                if (p != null && value != null && resultClass != null && resultClass.isInstance(value)) {
+                    val locations = runCatching {
+                        resultClass.getMethod("getLocations").invoke(value) as? List<*>
+                    }.getOrNull()
+                    locations?.filterIsInstance<Location>()?.forEach { applyBase(it, p, jitter = p.jitter) }
+                    DebugLog.line("fused onLocationResult rewritten (${p.name}, n=${locations?.size ?: 0})")
+                }
+            }
+            return method.invoke(delegate, *(args ?: emptyArray()))
         }
     }
 
