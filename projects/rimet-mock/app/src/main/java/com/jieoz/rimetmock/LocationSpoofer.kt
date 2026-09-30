@@ -249,9 +249,15 @@ object LocationSpoofer {
         for (name in listOf("setLatitude", "setLongitude")) {
             runCatching {
                 HookBridge.hook(location.getMethod(name, Double::class.javaPrimitiveType)) { call ->
+                    val p = profile() ?: return@hook
                     val target = call.chainThis as? Location ?: return@hook
                     if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
-                    DebugLog.line("$name(${call.args.firstOrNull()}) on ${target.javaClass.name} by=${caller()}")
+                    val saved = if (name == "setLatitude") adjusted(p).first else adjusted(p).second
+                    val incoming = call.args.firstOrNull()
+                    call.args[0] = saved
+                    if (incoming is Double && kotlin.math.abs(incoming - saved) > 1e-4) {
+                        DebugLog.line("$name($incoming) blocked, wrote $saved on ${target.javaClass.name}")
+                    }
                 }
             }.onFailure { log("hook Location.$name failed: ${it.message}") }
         }
