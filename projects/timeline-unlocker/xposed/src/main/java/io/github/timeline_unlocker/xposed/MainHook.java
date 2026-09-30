@@ -113,6 +113,7 @@ public class MainHook extends XposedModule {
                             if (PKG_MAPS.equals(pkg)) {
                                 reportTimelineClasses(context.getClassLoader());
                                 watchTimelineGate(context);
+                                watchEntryGate(context);
                             }
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
@@ -561,6 +562,74 @@ public class MainHook extends XposedModule {
     private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
     private volatile boolean timelineOpened;
+
+    /**
+     * Logs the value Maps computes for the Timeline menu entry. The deciding class is found by
+     * shape on the installed APK, so an obfuscated rename does not break it. One line per call:
+     * the boxed flag, the entry list size, and the boolean the menu actually reads.
+     */
+    private void watchEntryGate(Context context) {
+        try {
+            String apk = context.getApplicationInfo().sourceDir;
+            String desc = null;
+            try (ZipFile zip = new ZipFile(apk)) {
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements() && desc == null) {
+                    java.util.zip.ZipEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                    if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                    desc = DexTypes.findEntryGate(readEntry(zip, entry));
+                }
+            }
+            if (desc == null) {
+                log("timeline entry gate: not found");
+                return;
+            }
+            String binary = desc.substring(1, desc.length() - 1).replace('/', '.');
+            Class<?> type = context.getClassLoader().loadClass(binary);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getParameterTypes().length != 0) continue;
+                if (method.getReturnType() != boolean.class) continue;
+                Method target = method;
+                hook(target).intercept(chain -> {
+                    Object self = chain.getThisObject();
+                    String before = entryState(self);
+                    Object result = chain.proceed();
+                    log("timeline entry %s -> %s (%s)", target.getName(), result, before);
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline entry gate: %s armed=%d", binary, armed);
+        } catch (Throwable t) {
+            log("timeline entry gate failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** The boxed flag and the list size the gate reads, taken off the live object. */
+    private static String entryState(Object self) {
+        if (self == null) return "self=null";
+        String flag = "?", list = "?";
+        for (java.lang.reflect.Field field : self.getClass().getDeclaredFields()) {
+            try {
+                field.setAccessible(true);
+                Object value = field.get(self);
+                if (value instanceof Boolean) flag = String.valueOf(value);
+                else if (value != null && "cdup".equals(value.getClass().getSimpleName())) {
+                    try {
+                        Object size = value.getClass().getMethod("size").invoke(value);
+                        list = String.valueOf(size);
+                    } catch (Throwable t) {
+                        list = "nosize";
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return "flag=" + flag + " list=" + list;
+    }
 
     private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
         String[] names = gmsSide

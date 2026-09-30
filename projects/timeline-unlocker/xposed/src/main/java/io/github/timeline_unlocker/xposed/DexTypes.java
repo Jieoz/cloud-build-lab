@@ -777,4 +777,78 @@ final class DexTypes {
         for (String param : protoParams(dex, protoOff, protoIdx)) out.append(param).append(',');
         return out.append(')').toString();
     }
+
+    /**
+     * The class that decides whether the Timeline menu entry is shown. Found by shape, not by
+     * name: one no-arg method reads a {@code cdup} field and a {@code Boolean} field, then writes
+     * a {@code boolean} field. On the 26.38 package that is {@code akoj.b}, and the written field
+     * is what the menu reads. Returns the class descriptor, or null.
+     */
+    static String findEntryGate(byte[] dex) {
+        if (dex == null || dex.length < 0x70) return null;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int protoOff = u32(dex, 0x4c);
+        int fieldOff = u32(dex, 0x54);
+        int methodOff = u32(dex, 0x5c);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (classDefs <= 0) return null;
+        for (int c = 0; c < classDefs; c++) {
+            int cp = classOff + c * 32;
+            if (cp < 0 || cp + 32 > dex.length) break;
+            int data = u32(dex, cp + 24);
+            if (data <= 0 || data >= dex.length) continue;
+            int[] k = new int[]{data};
+            int staticFields = uleb(dex, k);
+            int instanceFields = uleb(dex, k);
+            int direct = uleb(dex, k);
+            int virtual = uleb(dex, k);
+            skipEncodedFields(dex, k, staticFields + instanceFields);
+            if (gateMethod(dex, k, direct, methodOff, stringOff, protoOff, fieldOff, typeOff)
+                    || gateMethod(dex, k, virtual, methodOff, stringOff, protoOff, fieldOff, typeOff)) {
+                return typeName(dex, stringOff, typeOff, u16(dex, cp));
+            }
+        }
+        return null;
+    }
+
+    /** True when one no-arg method in this list reads cdup + Boolean and writes a boolean. */
+    private static boolean gateMethod(byte[] dex, int[] k, int count, int methodOff, int stringOff,
+            int protoOff, int fieldOff, int typeOff) {
+        int idx = 0;
+        for (int i = 0; i < count; i++) {
+            idx += uleb(dex, k);
+            uleb(dex, k);
+            int code = uleb(dex, k);
+            if (code <= 0 || code + 16 > dex.length) continue;
+            int mp = methodOff + idx * 8;
+            if (mp < 0 || mp + 8 > dex.length) continue;
+            int paramOff = u32(dex, protoOff + u16(dex, mp + 2) * 12 + 8);
+            int nparams = paramOff == 0 ? 0 : (paramOff > 0 && paramOff + 4 <= dex.length ? u32(dex, paramOff) : -1);
+            if (nparams != 0) continue;
+            int insns = u32(dex, code + 12);
+            int start = code + 16;
+            int end = Math.min(dex.length, start + insns * 2);
+            boolean cdup = false, boxed = false, put = false;
+            for (int pc = start; pc + 4 <= end; pc += 2) {
+                int op = dex[pc] & 0xff;
+                if (op == 0x54 || op == 0x55) {
+                    String t = fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2));
+                    if (t.endsWith("/cdup;")) cdup = true;
+                    if ("Ljava/lang/Boolean;".equals(t)) boxed = true;
+                } else if (op == 0x5b || op == 0x5c) {
+                    if ("Z".equals(fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2)))) put = true;
+                }
+            }
+            if (cdup && boxed && put) return true;
+        }
+        return false;
+    }
+
+    private static String fieldType(byte[] dex, int stringOff, int typeOff, int fieldOff, int fieldIdx) {
+        int fp = fieldOff + fieldIdx * 8;
+        if (fp < 0 || fp + 8 > dex.length) return "";
+        return typeName(dex, stringOff, typeOff, u16(dex, fp + 2));
+    }
 }
