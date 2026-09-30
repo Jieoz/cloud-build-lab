@@ -623,27 +623,28 @@ public class MainHook extends XposedModule {
         }
     }
 
-    /** The boxed flag and the list size the gate reads, taken off the live object. */
+    /** The boxed flag and every sized object the gate reads, taken off the live object. */
     private static String entryState(Object self) {
         if (self == null) return "self=null";
-        String flag = "?", list = "?";
+        String flag = "?";
+        StringBuilder lists = new StringBuilder();
         for (java.lang.reflect.Field field : self.getClass().getDeclaredFields()) {
             try {
                 field.setAccessible(true);
                 Object value = field.get(self);
                 if (value instanceof Boolean) flag = String.valueOf(value);
-                else if (value != null && "cdup".equals(value.getClass().getSimpleName())) {
+                else if (value != null && !(value instanceof String) && !(value instanceof Number)) {
                     try {
                         Object size = value.getClass().getMethod("size").invoke(value);
-                        list = String.valueOf(size);
-                    } catch (Throwable t) {
-                        list = "nosize";
+                        if (lists.length() > 0) lists.append(',');
+                        lists.append(value.getClass().getSimpleName()).append('=').append(size);
+                    } catch (Throwable ignored) {
                     }
                 }
             } catch (Throwable ignored) {
             }
         }
-        return "flag=" + flag + " list=" + list;
+        return "flag=" + flag + " list=" + (lists.length() == 0 ? "?" : lists);
     }
 
     private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
