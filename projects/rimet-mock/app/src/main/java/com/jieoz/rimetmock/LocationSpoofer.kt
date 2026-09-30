@@ -219,12 +219,18 @@ object LocationSpoofer {
         val location = Location::class.java
         for (method in location.declaredConstructors) {
             runCatching {
-                HookBridge.hook(method) { call ->
-                    val p = profile() ?: return@hook
-                    val target = call.chainThis as? Location ?: return@hook
-                    if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
-                    stamp(target, p)
-                    DebugLog.line("Location constructed as ${p.name} (${target.provider})")
+                RimetMockModule.framework.hook(method).intercept { chain ->
+                    val built = chain.proceed(chain.args) as? Location
+                    val p = profile()
+                    if (built != null && p != null && built.javaClass.name != Constants.CLS_AMAP_LOCATION) {
+                        val before = "${built.latitude},${built.longitude}"
+                        stamp(built, p)
+                        DebugLog.line(
+                            "Location constructed ${built.javaClass.name} provider=${built.provider} " +
+                                "real=$before saved=${p.name} now=${built.latitude},${built.longitude} by=${caller()}"
+                        )
+                    }
+                    built
                 }
             }.onFailure { log("hook Location constructor failed: ${it.message}") }
         }
@@ -234,11 +240,32 @@ object LocationSpoofer {
                     val p = profile() ?: return@hook
                     val target = call.chainThis as? Location ?: return@hook
                     if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
-                    call.result = if (name == "getLatitude") adjusted(p).first else adjusted(p).second
+                    val value = if (name == "getLatitude") adjusted(p).first else adjusted(p).second
+                    call.result = value
+                    DebugLog.line("$name -> $value for ${target.javaClass.name} by=${caller()}")
+                }
+            }.onFailure { log("hook Location.$name failed: ${it.message}") }
+        }
+        for (name in listOf("setLatitude", "setLongitude")) {
+            runCatching {
+                HookBridge.hook(location.getMethod(name, Double::class.javaPrimitiveType)) { call ->
+                    val target = call.chainThis as? Location ?: return@hook
+                    if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
+                    DebugLog.line("$name(${call.args.firstOrNull()}) on ${target.javaClass.name} by=${caller()}")
                 }
             }.onFailure { log("hook Location.$name failed: ${it.message}") }
         }
         log("Location object hooks installed")
+    }
+
+    /** First frame outside this module, so the log shows which host class touched the Location. */
+    private fun caller(): String {
+        val here = LocationSpoofer::class.java.name
+        return Throwable().stackTrace.firstOrNull {
+            !it.className.startsWith(here.substringBeforeLast('.')) &&
+                !it.className.startsWith("io.github.libxposed") &&
+                !it.className.startsWith("de.robv.android.xposed")
+        }?.let { "${it.className}.${it.methodName}:${it.lineNumber}" } ?: "?"
     }
 
     private fun adjusted(p: Profile): Pair<Double, Double> {
