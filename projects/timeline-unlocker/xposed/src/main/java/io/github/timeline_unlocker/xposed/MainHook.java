@@ -266,6 +266,13 @@ public class MainHook extends XposedModule {
             return;
         }
         armGate(context.getClassLoader(), maker, "maker");
+        ClassLoader cl = context.getClassLoader();
+        for (String descriptor : maker.params) {
+            if (descriptor == null || descriptor.length() < 4 || descriptor.charAt(0) != 'L') continue;
+            String binary = descriptor.substring(1, descriptor.length() - 1).replace('/', '.');
+            if (binary.startsWith("com.google.common.")) continue;
+            watchMembers(cl, binary);
+        }
         DexTypes.Creator caller = DexTypes.findInvoker(dex, maker.owner, maker.name, maker.signature());
         if (caller == null) {
             log("timeline gate: no decodable caller of %s", maker.signature());
@@ -322,6 +329,45 @@ public class MainHook extends XposedModule {
         } catch (Throwable t) {
             log("timeline gate %s failed: %s (%s)", role, binary, t.getClass().getSimpleName());
         }
+    }
+
+    /** Every declared method of one gate class, with the caller recorded in the line. */
+    private void watchMembers(ClassLoader cl, String binary) {
+        try {
+            Class<?> type = cl.loadClass(binary);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (armed >= 12) break;
+                Method target = method;
+                hook(target).intercept(chain -> {
+                    Object result = chain.proceed();
+                    noteGate(memberLine(binary, target, chain.getThisObject(), chain.getArgs(), result));
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline gate members: %s armed=%d", binary, armed);
+        } catch (Throwable t) {
+            log("timeline gate members failed: %s (%s)", binary, t.getClass().getSimpleName());
+        }
+    }
+
+    private static String memberLine(String owner, Method method, Object self, Object[] args, Object result) {
+        String from = "none";
+        StackTraceElement[] stack = new Throwable().getStackTrace();
+        for (int i = 0; i < stack.length && i < 30; i++) {
+            String cls = stack[i].getClassName();
+            if (cls.startsWith("io.github.timeline_unlocker") || cls.startsWith("io.github.libxposed")
+                    || cls.startsWith("de.robv.android.xposed") || cls.startsWith("org.lsposed")
+                    || cls.startsWith("java.") || cls.startsWith("dalvik.")) continue;
+            from = cls + "." + stack[i].getMethodName();
+            break;
+        }
+        String ret = result instanceof Boolean || result instanceof Integer || result instanceof Long
+                ? String.valueOf(result) : result == null ? "null" : result.getClass().getSimpleName();
+        return "timeline member " + owner + "." + method.getName() + "/" + method.getParameterTypes().length
+                + " from=" + from + " args=" + (args == null ? 0 : args.length)
+                + " self=" + (self == null ? "null" : self.getClass().getSimpleName()) + " -> " + ret;
     }
 
     /** Dex type descriptor vs the live parameter class. */
@@ -482,7 +528,7 @@ public class MainHook extends XposedModule {
     // Maps, GMS and GSF and writes one line per distinct answer, capped, so a missing entry
     // can be told apart from "the module never loaded in GMS".
 
-    private static final int MAX_PROBE_LINES = 40;
+    private static final int MAX_PROBE_LINES = 80;
 
     private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
