@@ -27,9 +27,39 @@ final class TimelineProbe {
 
     /** One bounded line: who asked, which method, and the value the host actually received. */
     static String line(String owner, String member, String value) {
+        return "timeline probe " + simple(owner) + "." + member + " -> " + bound(value, 48);
+    }
+
+    /**
+     * One bounded line for a method Maps actually ran: the method, its return, and the
+     * primitive arguments it received. Used for the Timeline gate, not for hot-path reads.
+     */
+    static String call(String owner, String member, String ret, Object[] args, Object result) {
+        StringBuilder out = new StringBuilder();
+        out.append("timeline call ").append(simple(owner)).append(".").append(member);
+        out.append(" ret=").append(ret == null ? "?" : ret);
+        if (args != null) {
+            int shown = 0;
+            for (int i = 0; i < args.length && shown < 6; i++) {
+                if (!primitive(args[i])) continue;
+                if (shown++ > 0) out.append(',');
+                else out.append(" args=");
+                out.append(bound(String.valueOf(args[i]), 16));
+            }
+        }
+        out.append(" -> ").append(bound(result == null ? "null" : String.valueOf(result), 32));
+        return out.toString();
+    }
+
+    private static boolean primitive(Object value) {
+        return value instanceof Boolean || value instanceof Integer || value instanceof Long
+                || value instanceof Short || value instanceof Byte;
+    }
+
+    private static String bound(String value, int max) {
         String shown = value == null ? "null" : value.replace('\n', ' ').replace('\r', ' ');
-        if (shown.length() > 48) shown = shown.substring(0, 48);
-        return "timeline probe " + simple(owner) + "." + member + " -> " + shown;
+        if (shown.length() > max) shown = shown.substring(0, max);
+        return shown;
     }
 
     private static boolean isTelephony(String owner) {

@@ -4,8 +4,10 @@ import android.app.Application;
 import android.content.Context;
 import android.location.Location;
 
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.zip.ZipFile;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -110,6 +112,7 @@ public class MainHook extends XposedModule {
                             DiagLog.bind(context, on);
                             if (PKG_MAPS.equals(pkg)) {
                                 reportTimelineClasses(context.getClassLoader());
+                                watchTimelineGate(context);
                             }
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
@@ -243,6 +246,86 @@ public class MainHook extends XposedModule {
             log("timeline watch failed: %s (%s)", binary, t.getClass().getSimpleName());
         }
         log("timeline watching %d/1", armed);
+    }
+
+    /**
+     * One bounded startup scan of the installed Maps APK: hook the method that really
+     * constructs TimelineWrapper, and one caller above it. Logs return type and primitive
+     * args when those methods run. No spoof, no live location, no whole-dex callee walk.
+     */
+    private void watchTimelineGate(Context context) {
+        String apk = context.getApplicationInfo().sourceDir;
+        byte[] dex = dexContaining(apk, "TimelineWrapper");
+        if (dex == null) {
+            log("timeline gate: no dex names TimelineWrapper");
+            return;
+        }
+        DexTypes.Creator maker = DexTypes.findCreator(dex);
+        if (maker == null) {
+            log("timeline gate: no decodable TimelineWrapper.<init> caller");
+            return;
+        }
+        armGate(context.getClassLoader(), maker, "maker");
+        DexTypes.Creator caller = DexTypes.findInvoker(dex, maker.owner, maker.name, maker.signature());
+        if (caller == null) {
+            log("timeline gate: no decodable caller of %s", maker.signature());
+            return;
+        }
+        armGate(context.getClassLoader(), caller, "caller");
+    }
+
+    private void armGate(ClassLoader cl, DexTypes.Creator found, String role) {
+        String binary = found.owner.length() > 1 && found.owner.charAt(0) == 'L'
+                && found.owner.charAt(found.owner.length() - 1) == ';'
+                ? found.owner.substring(1, found.owner.length() - 1).replace('/', '.')
+                : found.owner;
+        try {
+            Class<?> type = cl.loadClass(binary);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (!method.getName().equals(found.name)) continue;
+                String ret = found.ret;
+                hook(method).intercept(chain -> {
+                    Object result = chain.proceed();
+                    noteGate(TimelineProbe.call(binary, method.getName(), ret,
+                            chain.getArgs().toArray(), result));
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline gate %s: %s->%s ret=%s armed=%d",
+                    role, binary, found.name, found.ret, armed);
+        } catch (Throwable t) {
+            log("timeline gate %s failed: %s (%s)", role, binary, t.getClass().getSimpleName());
+        }
+    }
+
+    /** The first classes*.dex in the installed APK whose type table names TimelineWrapper. */
+    private static byte[] dexContaining(String apk, String needle) {
+        if (apk == null) return null;
+        try (ZipFile zip = new ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                byte[] bytes = readEntry(zip, entry);
+                if (DexTypes.countDescriptorContaining(bytes, needle) > 0) return bytes;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static byte[] readEntry(ZipFile zip, java.util.zip.ZipEntry entry) throws java.io.IOException {
+        try (InputStream in = zip.getInputStream(entry)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toByteArray();
+        }
     }
 
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
@@ -390,5 +473,10 @@ public class MainHook extends XposedModule {
         String key = kind + " " + owner + "." + member + "=" + value;
         if (probed.size() >= MAX_PROBE_LINES || !probed.add(key)) return;
         log("%s %s", kind, TimelineProbe.line(owner, member, value));
+    }
+
+    private void noteGate(String line) {
+        if (probed.size() >= MAX_PROBE_LINES || !probed.add(line)) return;
+        log("%s", line);
     }
 }

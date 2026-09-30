@@ -52,4 +52,17 @@ public class TimelineProbeTest {
         assertFalse(huge.contains("\n"));
         assertTrue(huge.length() < 90);
     }
+
+    @Test
+    public void callKeepsReturnAndPrimitiveArgsOnly() {
+        String row = TimelineProbe.call(
+                "com.google.android.apps.maps.Gate", "a", "Z",
+                new Object[]{Boolean.TRUE, "account-token", Integer.valueOf(3)}, Boolean.FALSE);
+        assertEquals("timeline call Gate.a ret=Z args=true,3 -> false", row);
+
+        String noisy = TimelineProbe.call("Owner", "b", "Z", null, "x".repeat(80) + "\n");
+        assertTrue(noisy.startsWith("timeline call Owner.b ret=Z -> "));
+        assertFalse(noisy.contains("\n"));
+        assertFalse(noisy.contains("args="));
+    }
 }
