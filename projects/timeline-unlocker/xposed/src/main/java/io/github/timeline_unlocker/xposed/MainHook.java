@@ -561,6 +561,8 @@ public class MainHook extends XposedModule {
 
     private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
+    private final java.util.Set<Object> refreshed = java.util.Collections.newSetFromMap(
+            new java.util.IdentityHashMap<>());
     private volatile boolean timelineOpened;
 
     /**
@@ -616,6 +618,7 @@ public class MainHook extends XposedModule {
                     String before = entryState(self);
                     Object result = chain.proceed();
                     log("timeline entry %s -> %s (%s)", target.getName(), result, before);
+                    if (Boolean.FALSE.equals(result) && dataReady(self)) nudgeRefresh(self);
                     return result;
                 });
                 armed++;
@@ -626,6 +629,51 @@ public class MainHook extends XposedModule {
         } catch (Throwable t) {
             log("timeline entry gate failed: %s", t.getClass().getSimpleName());
         }
+    }
+
+    /** True once the gate holds both the boxed flag and the entry-point payload. */
+    private static boolean dataReady(Object self) {
+        boolean flag = false, payload = false;
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(self);
+                    if (value instanceof Boolean) flag = true;
+                    else if (value != null && !(value instanceof String) && !(value instanceof Number)
+                            && value.getClass().getMethod("size") != null) payload = true;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return flag && payload;
+    }
+
+    /** Re-runs the gate's refresh callback on the main thread, once per payload. */
+    private void nudgeRefresh(Object self) {
+        Runnable callback = null;
+        for (Class<?> type = self.getClass(); type != null && type != Object.class && callback == null; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (field.getType() != Runnable.class) continue;
+                try {
+                    field.setAccessible(true);
+                    callback = (Runnable) field.get(self);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        if (callback == null || !refreshed.add(self)) return;
+        Runnable task = callback;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                task.run();
+                log("timeline refresh posted");
+            } catch (Throwable t) {
+                log("timeline refresh failed: %s", t.getClass().getSimpleName());
+            }
+        });
     }
 
     /** Logs each call of the method that inserts the Timeline row, and whether it got a row. */
