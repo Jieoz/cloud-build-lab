@@ -267,6 +267,10 @@ public class MainHook extends XposedModule {
         }
         armGate(context.getClassLoader(), maker, "maker");
         ClassLoader cl = context.getClassLoader();
+        watchMembers(cl, "com.google.android.apps.gmm.mapsactivity.instant.TimelineWrapper");
+        java.util.List<String> refs = DexTypes.allInvokers(dex,
+                "Lcom/google/android/apps/gmm/mapsactivity/instant/TimelineWrapper;", "<init>", 12);
+        log("timeline gate refs: %d %s", refs.size(), refs);
         for (String descriptor : maker.params) {
             if (descriptor == null || descriptor.length() < 4 || descriptor.charAt(0) != 'L') continue;
             String binary = descriptor.substring(1, descriptor.length() - 1).replace('/', '.');

@@ -541,6 +541,65 @@ final class DexTypes {
         return null;
     }
 
+    /** Every method in this dex that invokes a target id, as {@code owner->name/arity}. Capped. */
+    static java.util.List<String> allInvokers(byte[] dex, String ownerNeedle, String nameNeedle, int cap) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x70 || ownerNeedle == null || nameNeedle == null || cap <= 0) return found;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int protoOff = u32(dex, 0x4c);
+        int methodOff = u32(dex, 0x5c);
+        int methodIds = u32(dex, 0x58);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (methodIds <= 0 || classDefs <= 0) return found;
+        java.util.List<Integer> targets = new java.util.ArrayList<>();
+        for (int i = 0; i < methodIds; i++) {
+            int pos = methodOff + i * 8;
+            if (pos < 0 || pos + 8 > dex.length) break;
+            if (!nameNeedle.equals(string(dex, stringOff, u32(dex, pos + 4)))) continue;
+            if (typeName(dex, stringOff, typeOff, u16(dex, pos)).contains(ownerNeedle)) targets.add(i);
+        }
+        if (targets.isEmpty()) return found;
+        for (int c = 0; c < classDefs && found.size() < cap; c++) {
+            int classPos = classOff + c * 32;
+            if (classPos < 0 || classPos + 32 > dex.length) break;
+            String owner = typeName(dex, stringOff, typeOff, u16(dex, classPos));
+            int classDataOff = u32(dex, classPos + 24);
+            if (classDataOff <= 0 || classDataOff >= dex.length) continue;
+            int[] cursor = new int[]{classDataOff};
+            int staticFields = uleb(dex, cursor);
+            int instanceFields = uleb(dex, cursor);
+            int directMethods = uleb(dex, cursor);
+            int virtualMethods = uleb(dex, cursor);
+            skipEncodedFields(dex, cursor, staticFields + instanceFields);
+            collectInvokers(dex, cursor, directMethods, methodOff, methodIds, stringOff, protoOff,
+                    owner, targets, found, cap);
+            collectInvokers(dex, cursor, virtualMethods, methodOff, methodIds, stringOff, protoOff,
+                    owner, targets, found, cap);
+        }
+        return found;
+    }
+
+    private static void collectInvokers(byte[] dex, int[] cursor, int count, int methodOff, int methodIds,
+            int stringOff, int protoOff, String owner, java.util.List<Integer> targets,
+            java.util.List<String> found, int cap) {
+        int methodIdx = 0;
+        for (int i = 0; i < count && found.size() < cap; i++) {
+            if (cursor[0] >= dex.length) return;
+            methodIdx += uleb(dex, cursor);
+            uleb(dex, cursor);
+            int codeOff = uleb(dex, cursor);
+            if (codeOff <= 0 || codeOff >= dex.length || methodIdx >= methodIds) continue;
+            int idPos = methodOff + methodIdx * 8;
+            java.util.List<String> calls = new java.util.ArrayList<>();
+            if (decodeCallees(dex, codeOff, protoOff, targets, calls, 8) < 0) continue;
+            int protoIdx = u16(dex, idPos + 2);
+            found.add(owner + "->" + string(dex, stringOff, u32(dex, idPos + 4))
+                    + "/" + protoArity(dex, protoOff, protoIdx));
+        }
+    }
+
     /**
      * One encoded_method section. Direct and virtual each restart the method index at 0;
      * carrying the index across both sections reads a field name as a method.
