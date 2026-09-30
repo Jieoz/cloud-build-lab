@@ -11,8 +11,8 @@ android {
         applicationId "com.jieoz.rimetmock"
         minSdk 26
         targetSdk 35
-        versionCode 35
-        versionName "0.3.3-lsp102"
+        versionCode 36
+        versionName "0.3.4-lsp102"
     }
 
     buildFeatures {

@@ -54,11 +54,8 @@ object LocationSpoofer {
             return
         }
         log("install: begin pkg=${param.packageName}")
-        noteLocationClasses(cl)
         installAMapHooks(cl)
-        installTencentHooks(cl)
-        installFusedHooks(cl)
-        installSystemHooks()
+        installLocationObjectHooks()
         installEnvHooks()
         log("install: done")
     }
@@ -216,217 +213,49 @@ object LocationSpoofer {
         }
     }
 
-    // ---- Tencent location (WeChat) -------------------------------------------------------
+    // ---- One hook for every SDK: a Location is a Location ---------------------------
 
-    private fun installTencentHooks(cl: ClassLoader) {
-        val manager = try {
-            cl.loadClass(Constants.CLS_TENCENT_MANAGER)
-        } catch (_: ClassNotFoundException) {
-            log("Tencent location SDK NOT present")
-            return
-        }
-        val listener = try {
-            cl.loadClass(Constants.CLS_TENCENT_LISTENER)
-        } catch (_: ClassNotFoundException) {
-            log("Tencent listener class missing; not hooked")
-            return
-        }
-        var hooked = 0
-        for (method in manager.declaredMethods) {
-            if (method.name != "requestLocationUpdates" && method.name != "requestSingleFreshLocation") continue
-            if (method.parameterTypes.none { listener.isAssignableFrom(it) }) continue
-            method.isAccessible = true
+    private fun installLocationObjectHooks() {
+        val location = Location::class.java
+        for (method in location.declaredConstructors) {
             runCatching {
                 HookBridge.hook(method) { call ->
                     val p = profile() ?: return@hook
-                    val index = call.args.indexOfFirst { listener.isInstance(it) }
-                    val original = call.args.getOrNull(index) ?: return@hook
-                    call.args[index] = Proxy.newProxyInstance(
-                        cl, arrayOf(listener), TencentLocationListener(cl, original)
-                    )
-                    DebugLog.line("tencent ${method.name} wrapped")
+                    val target = call.chainThis as? Location ?: return@hook
+                    if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
+                    stamp(target, p)
+                    DebugLog.line("Location constructed as ${p.name} (${target.provider})")
                 }
-                hooked++
-            }.onFailure { log("hook tencent ${method.name} failed: ${it.message}") }
+            }.onFailure { log("hook Location constructor failed: ${it.message}") }
         }
-        log("tencent location hooks installed: $hooked")
+        for (name in listOf("getLatitude", "getLongitude")) {
+            runCatching {
+                HookBridge.hook(location.getMethod(name)) { call ->
+                    val p = profile() ?: return@hook
+                    val target = call.chainThis as? Location ?: return@hook
+                    if (target.javaClass.name == Constants.CLS_AMAP_LOCATION) return@hook
+                    call.result = if (name == "getLatitude") adjusted(p).first else adjusted(p).second
+                }
+            }.onFailure { log("hook Location.$name failed: ${it.message}") }
+        }
+        log("Location object hooks installed")
     }
 
-    private class TencentLocationListener(
-        private val cl: ClassLoader,
-        private val delegate: Any
-    ) : InvocationHandler {
-        override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
-            if (method.name == "onLocationChanged" && args != null && args.isNotEmpty()) {
-                val p = profile()
-                val loc = args[0]
-                if (p != null && loc != null) {
-                    rewriteTencent(cl, loc, p)
-                    DebugLog.line("tencent onLocationChanged rewritten (${p.name})")
-                }
-            }
-            return method.invoke(delegate, *(args ?: emptyArray()))
-        }
-    }
-
-    private fun rewriteTencent(cl: ClassLoader, loc: Any, p: Profile) {
+    private fun adjusted(p: Profile): Pair<Double, Double> {
         var lat = p.latitude
         var lng = p.longitude
         if (kotlin.math.abs(lat) > 90.0) lat /= 1_000_000.0
         if (kotlin.math.abs(lng) > 180.0) lng /= 1_000_000.0
-        for ((name, value) in listOf("setLatitude" to lat, "setLongitude" to lng)) {
-            val applied = runCatching {
-                loc.javaClass.getMethod(name, Double::class.javaPrimitiveType).invoke(loc, value)
-            }.isSuccess
-            if (!applied) DebugLog.line("tencent $name missing on ${loc.javaClass.name}")
-        }
-        for ((name, value) in listOf(
-            "setAddress" to p.address, "setName" to p.poiName, "setProvince" to p.province,
-            "setCity" to p.city, "setDistrict" to p.district, "setStreet" to p.street,
-            "setStreetNo" to p.streetNum
-        )) {
-            if (value.isEmpty()) continue
-            runCatching { loc.javaClass.getMethod(name, String::class.java).invoke(loc, value) }
-        }
+        return lat to lng
     }
 
-    // ---- Play services fused location (WeChat on this device) ---------------------------
-
-    private fun installFusedHooks(cl: ClassLoader) {
-        val client = try {
-            cl.loadClass(Constants.CLS_FUSED)
-        } catch (_: ClassNotFoundException) {
-            log("FusedLocationProviderClient NOT present")
-            return
-        }
-        val callback = runCatching {
-            cl.loadClass("com.google.android.gms.location.LocationCallback")
-        }.getOrNull()
-        val result = runCatching {
-            cl.loadClass("com.google.android.gms.location.LocationResult")
-        }.getOrNull()
-        var hooked = 0
-        if (callback != null) {
-            for (method in client.declaredMethods) {
-                if (method.name != "requestLocationUpdates") continue
-                if (method.parameterTypes.none { callback.isAssignableFrom(it) }) continue
-                method.isAccessible = true
-                runCatching {
-                    HookBridge.hook(method) { call ->
-                        val p = profile() ?: return@hook
-                        val index = call.args.indexOfFirst { callback.isInstance(it) }
-                        val original = call.args.getOrNull(index) ?: return@hook
-                        call.args[index] = Proxy.newProxyInstance(
-                            cl, arrayOf(callback), FusedLocationCallback(original, result)
-                        )
-                        DebugLog.line("fused requestLocationUpdates wrapped")
-                    }
-                    hooked++
-                }.onFailure { log("hook fused ${method.name} failed: ${it.message}") }
-            }
-        }
-        for (method in client.declaredMethods) {
-            if (method.name != "getLastLocation") continue
-            method.isAccessible = true
-            runCatching {
-                HookBridge.hook(method) { call ->
-                    val p = profile() ?: return@hook
-                    DebugLog.line("fused getLastLocation called; result is a Task and was NOT replaced")
-                }
-            }.onFailure { log("hook fused getLastLocation failed: ${it.message}") }
-            hooked++
-        }
-        log("fused location hooks installed: $hooked")
+    private fun stamp(loc: Location, p: Profile) {
+        val (lat, lng) = adjusted(p)
+        loc.latitude = lat
+        loc.longitude = lng
+        loc.time = System.currentTimeMillis()
+        loc.elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
     }
-
-    private class FusedLocationCallback(
-        private val delegate: Any,
-        private val resultClass: Class<*>?
-    ) : InvocationHandler {
-        override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
-            if (method.name == "onLocationResult" && args != null && args.isNotEmpty()) {
-                val p = profile()
-                val value = args[0]
-                if (p != null && value != null && resultClass != null && resultClass.isInstance(value)) {
-                    val locations = runCatching {
-                        resultClass.getMethod("getLocations").invoke(value) as? List<*>
-                    }.getOrNull()
-                    locations?.filterIsInstance<Location>()?.forEach { applyBase(it, p, jitter = p.jitter) }
-                    DebugLog.line("fused onLocationResult rewritten (${p.name}, n=${locations?.size ?: 0})")
-                }
-            }
-            return method.invoke(delegate, *(args ?: emptyArray()))
-        }
-    }
-
-    /** Names the location stacks actually loaded, so an unhooked SDK is visible in the log. */
-    private fun noteLocationClasses(cl: ClassLoader) {
-        val names = listOf(
-            Constants.CLS_AMAP_CLIENT, Constants.CLS_TENCENT_MANAGER, Constants.CLS_FUSED,
-            "com.tencent.tencentmap.mapsdk.maps.TencentMap",
-            "com.baidu.location.LocationClient",
-            "c.t.m.g.p"
-        )
-        val present = names.filter { runCatching { cl.loadClass(it) }.isSuccess }
-        log("location classes present: ${present.ifEmpty { listOf("none of the known SDKs") }}")
-    }
-
-    // ---- Framework location hooks (apps that do not use AMap) ---------------------------
-
-    private fun installSystemHooks() {
-        val lm = android.location.LocationManager::class.java
-        runCatching {
-            HookBridge.hook(lm.getMethod("getLastKnownLocation", String::class.java)) { call ->
-                val p = profile() ?: return@hook
-                val provider = call.args.getOrNull(0) as? String ?: "gps"
-                call.result = buildSystemLocation(provider, p)
-                DebugLog.line("getLastKnownLocation($provider) replaced (${p.name})")
-            }
-        }.onFailure { log("hook LocationManager.getLastKnownLocation failed: ${it.message}") }
-
-        val listener = android.location.LocationListener::class.java
-        for (method in lm.methods) {
-            if (method.name != "requestLocationUpdates") continue
-            if (method.parameterTypes.none { listener.isAssignableFrom(it) }) continue
-            runCatching {
-                HookBridge.hook(method) { call ->
-                    val p = profile() ?: return@hook
-                    val index = call.args.indexOfFirst { listener.isInstance(it) }
-                    val original = call.args.getOrNull(index) ?: return@hook
-                    val proxy = Proxy.newProxyInstance(
-                        original.javaClass.classLoader,
-                        arrayOf(listener),
-                        SystemLocationListener(original)
-                    )
-                    call.args[index] = proxy
-                    DebugLog.line("requestLocationUpdates wrapped")
-                    runCatching {
-                        listener.getMethod("onLocationChanged", Location::class.java)
-                            .invoke(proxy, buildSystemLocation("gps", p))
-                        DebugLog.line("immediate system onLocationChanged pushed (${p.name})")
-                    }.onFailure { DebugLog.line("immediate system push failed: ${it.message}") }
-                }
-            }.onFailure { log("hook ${method.name} failed: ${it.message}") }
-        }
-        log("system location hooks installed")
-    }
-
-    private class SystemLocationListener(private val delegate: Any) : InvocationHandler {
-        override fun invoke(proxy: Any?, method: Method, args: Array<out Any?>?): Any? {
-            if (method.name == "onLocationChanged" && args != null && args.isNotEmpty()) {
-                val p = profile()
-                val loc = args[0]
-                if (loc is Location && p != null) {
-                    applyBase(loc, p, jitter = p.jitter)
-                    DebugLog.line("system onLocationChanged rewritten (${p.name})")
-                }
-            }
-            return method.invoke(delegate, *(args ?: emptyArray()))
-        }
-    }
-
-    private fun buildSystemLocation(provider: String, p: Profile): Location =
-        Location(provider).also { applyBase(it, p, jitter = false) }
 
     /** Coordinate fields only. AMap address setters are applied separately by [applyAll]. */
     private fun applyBase(loc: Location, p: Profile, jitter: Boolean) {
