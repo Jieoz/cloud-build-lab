@@ -58,8 +58,6 @@ public class MainHook extends XposedModule {
         if (PKG_MAPS.equals(pkg)) {
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
-            hookTelephonyManager(cl);
-            hookSystemProperties(cl);
         } else {
             // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
             // are the working pair. Keep exactly that.
