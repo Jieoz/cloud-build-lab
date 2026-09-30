@@ -750,7 +750,6 @@ public class MainHook extends XposedModule {
                 }
             }
             log("timeline buttons: %d readers armed=%d", found.size(), armed);
-            watchButtonLayout(context);
         } catch (Throwable t) {
             log("timeline buttons failed: %s", t.getClass().getSimpleName());
         }
@@ -829,6 +828,21 @@ public class MainHook extends XposedModule {
                         out.append(text.length() > 24 ? text.substring(0, 24) : text);
                     } else if (field.getName().equals("g") && depth == 0) {
                         out.append('{').append(entryState(value, depth + 1)).append('}');
+                    } else if (field.getName().equals("d") && depth == 0) {
+                        StringBuilder inner = new StringBuilder();
+                        for (Class<?> c = value.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                                if (!java.util.List.class.isAssignableFrom(f.getType())) continue;
+                                f.setAccessible(true);
+                                try {
+                                    Object v = f.get(value);
+                                    int n = v instanceof java.util.List ? ((java.util.List<?>) v).size() : -1;
+                                    inner.append(f.getName()).append('=').append(n).append(' ');
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                        out.append("buttons{").append(inner).append('}');
                     } else if (field.getName().equals("b") && depth == 1 && value instanceof java.util.List) {
                         java.util.List<?> items = (java.util.List<?>) value;
                         out.append('[');
