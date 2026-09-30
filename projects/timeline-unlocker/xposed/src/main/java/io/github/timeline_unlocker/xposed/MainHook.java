@@ -618,7 +618,7 @@ public class MainHook extends XposedModule {
                     String before = entryState(self);
                     Object result = chain.proceed();
                     log("timeline entry %s -> %s (%s)", target.getName(), result, before);
-                    if (Boolean.FALSE.equals(result) && dataReady(self)) nudgeRefresh(self);
+                    if (buttonCount(self) >= 5) nudgeRefresh(self);
                     return result;
                 });
                 armed++;
@@ -630,6 +630,30 @@ public class MainHook extends XposedModule {
         } catch (Throwable t) {
             log("timeline entry gate failed: %s", t.getClass().getSimpleName());
         }
+    }
+
+    /** How many buttons are stored on the row model (field {@code d}'s list). */
+    private static int buttonCount(Object self) {
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (!field.getName().equals("d") || java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    Object holder = field.get(self);
+                    if (holder == null) return 0;
+                    for (Class<?> c = holder.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                        for (java.lang.reflect.Field inner : c.getDeclaredFields()) {
+                            if (java.lang.reflect.Modifier.isStatic(inner.getModifiers())) continue;
+                            if (!java.util.List.class.isAssignableFrom(inner.getType())) continue;
+                            inner.setAccessible(true);
+                            Object list = inner.get(holder);
+                            if (list instanceof java.util.List) return ((java.util.List<?>) list).size();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+        return 0;
     }
 
     /** True once the gate holds both the boxed flag and the entry-point payload. */
