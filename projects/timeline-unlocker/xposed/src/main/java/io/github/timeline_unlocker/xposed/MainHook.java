@@ -626,6 +626,7 @@ public class MainHook extends XposedModule {
             log("timeline entry gate: %s armed=%d apk=%s", binary, armed,
                     hitApk == null ? "?" : hitApk.substring(hitApk.lastIndexOf('/') + 1));
             watchRowInserter(context, rowInserter);
+            watchButtonBuilder(context, binary);
         } catch (Throwable t) {
             log("timeline entry gate failed: %s", t.getClass().getSimpleName());
         }
@@ -706,6 +707,51 @@ public class MainHook extends XposedModule {
             log("timeline row: %s armed=%d", rowInserter, armed);
         } catch (Throwable t) {
             log("timeline row failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Logs every method that reads the entry-gate object, so the button builder shows up by name. */
+    private void watchButtonBuilder(Context context, String gateBinary) {
+        try {
+            String gateDesc = "L" + gateBinary.replace('.', '/') + ";";
+            java.util.List<String> found = new java.util.ArrayList<>();
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
+            for (String apk : apks) {
+                if (apk == null) continue;
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) continue;
+                        found.addAll(DexTypes.findButtonBuilder(bytes, gateDesc));
+                    }
+                }
+            }
+            if (found.isEmpty()) { log("timeline buttons: not found"); return; }
+            int armed = 0;
+            for (String ref : found) {
+                String owner = ref.substring(1, ref.indexOf(';')).replace('/', '.');
+                String name = ref.substring(ref.indexOf("->") + 2);
+                Class<?> type = context.getClassLoader().loadClass(owner);
+                for (Method method : type.getDeclaredMethods()) {
+                    if (!method.getName().equals(name)) continue;
+                    hook(method).intercept(chain -> {
+                        Object result = chain.proceed();
+                        log("timeline buttons %s -> %s", ref, result == null ? "null" : result.getClass().getSimpleName());
+                        return result;
+                    });
+                    armed++;
+                }
+            }
+            log("timeline buttons: %d readers armed=%d", found.size(), armed);
+        } catch (Throwable t) {
+            log("timeline buttons failed: %s", t.getClass().getSimpleName());
         }
     }
 

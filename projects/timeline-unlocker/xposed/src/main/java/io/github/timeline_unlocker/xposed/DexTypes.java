@@ -927,4 +927,70 @@ final class DexTypes {
         if (fp < 0 || fp + 8 > dex.length) return "";
         return typeName(dex, stringOff, typeOff, u16(dex, fp + 2));
     }
+
+    /**
+     * Methods that read a field of the entry-gate class. The button builder is one of them; the gate
+     * class is already known, so this stays small and name-independent.
+     */
+    static java.util.List<String> findButtonBuilder(byte[] dex, String gateDesc) {
+        java.util.List<String> hits = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x70 || gateDesc == null) return hits;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int fieldOff = u32(dex, 0x54);
+        int fieldIds = u32(dex, 0x50);
+        int methodOff = u32(dex, 0x5c);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        if (classDefs <= 0 || fieldIds <= 0) return hits;
+        java.util.Set<Integer> gateFields = new java.util.HashSet<>();
+        for (int f = 0; f < fieldIds; f++) {
+            if (gateDesc.equals(typeName(dex, stringOff, typeOff, u16(dex, fieldOff + f * 8)))) gateFields.add(f);
+        }
+        if (gateFields.isEmpty()) return hits;
+        for (int c = 0; c < classDefs; c++) {
+            int cp = classOff + c * 32;
+            if (cp < 0 || cp + 32 > dex.length) break;
+            int data = u32(dex, cp + 24);
+            if (data <= 0 || data >= dex.length) continue;
+            int[] k = new int[]{data};
+            int staticFields = uleb(dex, k);
+            int instanceFields = uleb(dex, k);
+            int direct = uleb(dex, k);
+            int virtual = uleb(dex, k);
+            skipEncodedFields(dex, k, staticFields + instanceFields);
+            String owner = typeName(dex, stringOff, typeOff, u16(dex, cp));
+            if (owner.equals(gateDesc)) { skipEncodedMethods(dex, k, direct + virtual); continue; }
+            readerMethod(dex, k, direct, methodOff, stringOff, gateFields, owner, hits);
+            readerMethod(dex, k, virtual, methodOff, stringOff, gateFields, owner, hits);
+        }
+        return hits;
+    }
+
+    private static void readerMethod(byte[] dex, int[] k, int count, int methodOff, int stringOff,
+            java.util.Set<Integer> gateFields, String owner, java.util.List<String> hits) {
+        int idx = 0;
+        for (int i = 0; i < count; i++) {
+            idx += uleb(dex, k);
+            uleb(dex, k);
+            int code = uleb(dex, k);
+            if (code <= 0 || code + 16 > dex.length) continue;
+            int insns = u32(dex, code + 12);
+            int start = code + 16;
+            int end = Math.min(dex.length, start + insns * 2);
+            boolean reads = false;
+            for (int pc = start; pc + 4 <= end; ) {
+                int op = dex[pc] & 0xff;
+                if (op >= 0x52 && op <= 0x6d && gateFields.contains(u16(dex, pc + 2))) reads = true;
+                int u = op == 0 ? 1 : ((op >= 0x6e && op <= 0x78) ? 3 : 2);
+                if (u <= 0) break;
+                pc += u * 2;
+            }
+            if (reads) hits.add(owner + "->" + string(dex, stringOff, u32(dex, methodOff + idx * 8 + 4)));
+        }
+    }
+
+    private static void skipEncodedMethods(byte[] dex, int[] k, int count) {
+        for (int i = 0; i < count; i++) { uleb(dex, k); uleb(dex, k); uleb(dex, k); }
+    }
 }
