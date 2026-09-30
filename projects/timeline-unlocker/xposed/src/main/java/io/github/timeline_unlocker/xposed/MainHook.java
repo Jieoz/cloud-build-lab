@@ -646,6 +646,14 @@ public class MainHook extends XposedModule {
                         out.append(text.length() > 24 ? text.substring(0, 24) : text);
                     } else if (field.getName().equals("g") && depth == 0) {
                         out.append('{').append(entryState(value, depth + 1)).append('}');
+                    } else if (field.getName().equals("b") && depth == 1 && value instanceof java.util.List) {
+                        java.util.List<?> items = (java.util.List<?>) value;
+                        out.append('[');
+                        for (int n = 0; n < items.size() && n < 8; n++) {
+                            if (n > 0) out.append(' ');
+                            out.append(entryState(items.get(n), depth + 1));
+                        }
+                        out.append(']');
                     } else {
                         String sized = null;
                         try {
