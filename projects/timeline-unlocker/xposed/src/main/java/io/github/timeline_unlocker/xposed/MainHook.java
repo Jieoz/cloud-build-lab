@@ -281,23 +281,70 @@ public class MainHook extends XposedModule {
                 : found.owner;
         try {
             Class<?> type = cl.loadClass(binary);
-            int armed = 0;
+            Method chosen = null;
             for (Method method : type.getDeclaredMethods()) {
-                if (!method.getName().equals(found.name)) continue;
-                String ret = found.ret;
-                hook(method).intercept(chain -> {
-                    Object result = chain.proceed();
-                    noteGate(TimelineProbe.call(binary, method.getName(), ret,
-                            chain.getArgs().toArray(), result));
-                    return result;
-                });
-                armed++;
+                if (method.getName().equals(found.name)) {
+                    chosen = method;
+                    break;
+                }
             }
-            log("timeline gate %s: %s->%s ret=%s armed=%d",
-                    role, binary, found.name, found.ret, armed);
+            if (chosen == null && !found.params.isEmpty()) {
+                for (Method method : type.getDeclaredMethods()) {
+                    if (sameParams(method, found.params)) {
+                        chosen = method;
+                        break;
+                    }
+                }
+            }
+            if (chosen == null) {
+                StringBuilder seen = new StringBuilder();
+                int n = 0;
+                for (Method method : type.getDeclaredMethods()) {
+                    if (n++ >= 12) break;
+                    if (seen.length() > 0) seen.append(',');
+                    seen.append(method.getName()).append('/').append(method.getParameterTypes().length);
+                }
+                log("timeline gate %s: %s dex=%s arity=%d armed=0 methods=%s",
+                        role, binary, found.name, found.arity, seen);
+                return;
+            }
+            String live = chosen.getName();
+            Method target = chosen;
+            hook(target).intercept(chain -> {
+                Object result = chain.proceed();
+                noteGate(TimelineProbe.call(binary, live, found.ret,
+                        chain.getArgs().toArray(), result));
+                return result;
+            });
+            log("timeline gate %s: %s dex=%s arity=%d armed=1 name=%s/%d",
+                    role, binary, found.name, found.arity, live, target.getParameterTypes().length);
         } catch (Throwable t) {
             log("timeline gate %s failed: %s (%s)", role, binary, t.getClass().getSimpleName());
         }
+    }
+
+    /** Dex type descriptor vs the live parameter class. */
+    private static boolean sameParams(Method method, java.util.List<String> descriptors) {
+        Class<?>[] live = method.getParameterTypes();
+        if (live.length != descriptors.size()) return false;
+        for (int i = 0; i < live.length; i++) {
+            if (!descriptors.get(i).equals(descriptorOf(live[i]))) return false;
+        }
+        return true;
+    }
+
+    private static String descriptorOf(Class<?> type) {
+        if (type == boolean.class) return "Z";
+        if (type == byte.class) return "B";
+        if (type == char.class) return "C";
+        if (type == short.class) return "S";
+        if (type == int.class) return "I";
+        if (type == long.class) return "J";
+        if (type == float.class) return "F";
+        if (type == double.class) return "D";
+        if (type == void.class) return "V";
+        if (type.isArray()) return "[" + descriptorOf(type.getComponentType());
+        return "L" + type.getName().replace('.', '/') + ";";
     }
 
     /** The first classes*.dex in the installed APK whose type table names TimelineWrapper. */

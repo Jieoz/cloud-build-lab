@@ -455,13 +455,24 @@ final class DexTypes {
         final String owner;
         final String name;
         final String ret;
+        /** Parameter slots of the proto (wide types count as one). -1 when unknown. */
+        final int arity;
+        /** Parameter type descriptors, empty when unknown. */
+        final java.util.List<String> params;
         final java.util.List<String> calls;
         final int targetIndex;
 
         Creator(String owner, String name, String ret, java.util.List<String> calls, int targetIndex) {
+            this(owner, name, ret, -1, java.util.Collections.emptyList(), calls, targetIndex);
+        }
+
+        Creator(String owner, String name, String ret, int arity, java.util.List<String> params,
+                java.util.List<String> calls, int targetIndex) {
             this.owner = owner;
             this.name = name;
             this.ret = ret;
+            this.arity = arity;
+            this.params = params;
             this.calls = calls;
             this.targetIndex = targetIndex;
         }
@@ -531,8 +542,10 @@ final class DexTypes {
                 java.util.List<String> calls = new java.util.ArrayList<>();
                 int hit = decodeCallees(dex, codeOff, protoOff, targets, calls, 80);
                 if (hit >= 0) {
-                    String ret = protoReturn(dex, protoOff, u16(dex, idPos + 2));
-                    return new Creator(owner, name, ret, calls, hit);
+                    int protoIdx = u16(dex, idPos + 2);
+                    String ret = protoReturn(dex, protoOff, protoIdx);
+                    return new Creator(owner, name, ret, protoArity(dex, protoOff, protoIdx),
+                            protoParams(dex, protoOff, protoIdx), calls, hit);
                 }
             }
         }
@@ -648,5 +661,38 @@ final class DexTypes {
         int pos = protoOff + protoIdx * 12;
         if (protoIdx >= protoIds || pos + 12 > dex.length) return "?";
         return typeName(dex, u32(dex, 0x3c), u32(dex, 0x44), u32(dex, pos + 4));
+    }
+
+    /** Parameter slot count of a proto. -1 when the proto or its type list cannot be read. */
+    static int protoArity(byte[] dex, int protoOff, int protoIdx) {
+        if (dex == null || dex.length < 0x50 || protoOff <= 0 || protoIdx < 0) return -1;
+        int protoIds = u32(dex, 0x48);
+        int pos = protoOff + protoIdx * 12;
+        if (protoIdx >= protoIds || pos + 12 > dex.length) return -1;
+        int paramsOff = u32(dex, pos + 8);
+        if (paramsOff == 0) return 0;
+        if (paramsOff < 0 || paramsOff + 4 > dex.length) return -1;
+        return u32(dex, paramsOff);
+    }
+
+    /** Parameter type descriptors of a proto, in declaration order. Empty when unreadable. */
+    static java.util.List<String> protoParams(byte[] dex, int protoOff, int protoIdx) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x50 || protoOff <= 0 || protoIdx < 0) return out;
+        int protoIds = u32(dex, 0x48);
+        int pos = protoOff + protoIdx * 12;
+        if (protoIdx >= protoIds || pos + 12 > dex.length) return out;
+        int paramsOff = u32(dex, pos + 8);
+        if (paramsOff == 0) return out;
+        if (paramsOff < 0 || paramsOff + 4 > dex.length) return out;
+        int count = u32(dex, paramsOff);
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        for (int i = 0; i < count; i++) {
+            int at = paramsOff + 4 + i * 2;
+            if (at + 2 > dex.length) break;
+            out.add(typeName(dex, stringOff, typeOff, u16(dex, at)));
+        }
+        return out;
     }
 }
