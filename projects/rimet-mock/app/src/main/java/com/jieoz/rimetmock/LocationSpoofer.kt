@@ -220,7 +220,7 @@ object LocationSpoofer {
         for (method in location.declaredConstructors) {
             runCatching {
                 RimetMockModule.framework.hook(method).intercept { chain ->
-                    val built = chain.proceed(chain.args) as? Location
+                    val built = chain.proceed(chain.args.toTypedArray()) as? Location
                     val p = profile()
                     if (built != null && p != null && built.javaClass.name != Constants.CLS_AMAP_LOCATION) {
                         val before = "${built.latitude},${built.longitude}"
