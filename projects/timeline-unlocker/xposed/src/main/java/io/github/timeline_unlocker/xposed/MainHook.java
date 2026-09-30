@@ -4,8 +4,10 @@ import android.app.Application;
 import android.content.Context;
 import android.location.Location;
 
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.zip.ZipFile;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -54,12 +56,11 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            // Maps must read the real country. A spoofed us here makes Maps skip its
-            // own GCJ correction, so the live-location rewrite stacks on top and the
-            // blue dot shifts. Timeline stays via the same spoof in GMS and GSF.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
         } else {
+            // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
+            // are the working pair. Keep exactly that.
             hookTimelineReads(cl, true);
             hookTelephonyManager(cl);
             hookSystemProperties(cl);
@@ -107,7 +108,11 @@ public class MainHook extends XposedModule {
                         if (pkg.equals(context.getPackageName()) && isMainProcess(pkg)) {
                             boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
                             DiagLog.bind(context, on);
-                            if (PKG_MAPS.equals(pkg)) reportTimelineClasses(context.getClassLoader());
+                            if (PKG_MAPS.equals(pkg)) {
+                                reportTimelineClasses(context.getClassLoader());
+                                watchTimelineGate(context);
+                                watchEntryGate(context);
+                            }
                             if (on) {
                                 for (String message : drainEarly()) DiagLog.line(message);
                             } else {
@@ -229,6 +234,7 @@ public class MainHook extends XposedModule {
             Constructor<?>[] ctors = type.getDeclaredConstructors();
             for (Constructor<?> ctor : ctors) {
                 hook(ctor).intercept(chain -> {
+                    timelineOpened = true;
                     noteProbe("ctor", binary, "new", "opened");
                     return chain.proceed();
                 });
@@ -241,6 +247,220 @@ public class MainHook extends XposedModule {
         log("timeline watching %d/1", armed);
     }
 
+    /**
+     * One bounded startup scan of the installed Maps APK: hook the method that really
+     * constructs TimelineWrapper, and one caller above it. Logs return type and primitive
+     * args when those methods run. No spoof, no live location, no whole-dex callee walk.
+     */
+    private void watchTimelineGate(Context context) {
+        String apk = context.getApplicationInfo().sourceDir;
+        byte[] dex = dexContaining(apk, "TimelineWrapper");
+        if (dex == null) {
+            log("timeline gate: no dex names TimelineWrapper");
+            return;
+        }
+        DexTypes.Creator maker = DexTypes.findCreator(dex);
+        if (maker == null) {
+            log("timeline gate: no decodable TimelineWrapper.<init> caller");
+            return;
+        }
+        armGate(context.getClassLoader(), maker, "maker");
+        ClassLoader cl = context.getClassLoader();
+        watchMembers(cl, "com.google.android.apps.gmm.mapsactivity.instant.TimelineWrapper");
+        java.util.List<String> refs = invokersOf(apk,
+                "Lcom/google/android/apps/gmm/mapsactivity/instant/TimelineWrapper;", "<init>", 12);
+        log("timeline gate refs: %d %s", refs.size(), refs);
+        for (String descriptor : maker.params) {
+            if (descriptor == null || descriptor.length() < 4 || descriptor.charAt(0) != 'L') continue;
+            String binary = descriptor.substring(1, descriptor.length() - 1).replace('/', '.');
+            if (binary.startsWith("com.google.common.")) continue;
+            watchMembers(cl, binary);
+        }
+        DexTypes.Creator caller = DexTypes.findInvoker(dex, maker.owner, maker.name, maker.signature());
+        if (caller == null) {
+            log("timeline gate: no decodable caller of %s", maker.signature());
+            return;
+        }
+        armGate(context.getClassLoader(), caller, "caller");
+    }
+
+    private void armGate(ClassLoader cl, DexTypes.Creator found, String role) {
+        String binary = found.owner.length() > 1 && found.owner.charAt(0) == 'L'
+                && found.owner.charAt(found.owner.length() - 1) == ';'
+                ? found.owner.substring(1, found.owner.length() - 1).replace('/', '.')
+                : found.owner;
+        try {
+            Class<?> type = cl.loadClass(binary);
+            Method chosen = null;
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getName().equals(found.name)) {
+                    chosen = method;
+                    break;
+                }
+            }
+            if (chosen == null && !found.params.isEmpty()) {
+                for (Method method : type.getDeclaredMethods()) {
+                    if (sameParams(method, found.params)) {
+                        chosen = method;
+                        break;
+                    }
+                }
+            }
+            if (chosen == null) {
+                StringBuilder seen = new StringBuilder();
+                int n = 0;
+                for (Method method : type.getDeclaredMethods()) {
+                    if (n++ >= 12) break;
+                    if (seen.length() > 0) seen.append(',');
+                    seen.append(method.getName()).append('/').append(method.getParameterTypes().length);
+                }
+                log("timeline gate %s: %s dex=%s arity=%d armed=0 methods=%s",
+                        role, binary, found.name, found.arity, seen);
+                return;
+            }
+            String live = chosen.getName();
+            Method target = chosen;
+            hook(target).intercept(chain -> {
+                Object result = chain.proceed();
+                noteGate(TimelineProbe.call(binary, live, found.ret,
+                        chain.getArgs().toArray(), result));
+                return result;
+            });
+            log("timeline gate %s: %s dex=%s arity=%d armed=1 name=%s/%d calls=%s",
+                    role, binary, found.name, found.arity, live,
+                    target.getParameterTypes().length, shownCalls(found));
+        } catch (Throwable t) {
+            log("timeline gate %s failed: %s (%s)", role, binary, t.getClass().getSimpleName());
+        }
+    }
+
+    /** Every declared method of one gate class, with the caller recorded in the line. */
+    private void watchMembers(ClassLoader cl, String binary) {
+        try {
+            Class<?> type = cl.loadClass(binary);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (armed >= 12) break;
+                Method target = method;
+                hook(target).intercept(chain -> {
+                    Object result = chain.proceed();
+                    noteGate(memberLine(binary, target, chain.getThisObject(), chain.getArgs().size(), result));
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline gate members: %s armed=%d", binary, armed);
+        } catch (Throwable t) {
+            log("timeline gate members failed: %s (%s)", binary, t.getClass().getSimpleName());
+        }
+    }
+
+    private static String memberLine(String owner, Method method, Object self, int argc, Object result) {
+        String from = "none";
+        StackTraceElement[] stack = new Throwable().getStackTrace();
+        for (int i = 0; i < stack.length && i < 30; i++) {
+            String cls = stack[i].getClassName();
+            if (cls.startsWith("io.github.timeline_unlocker") || cls.startsWith("io.github.libxposed")
+                    || cls.startsWith("de.robv.android.xposed") || cls.startsWith("org.lsposed")
+                    || cls.startsWith("java.") || cls.startsWith("dalvik.")) continue;
+            from = cls + "." + stack[i].getMethodName();
+            break;
+        }
+        String ret = result instanceof Boolean || result instanceof Integer || result instanceof Long
+                ? String.valueOf(result) : result == null ? "null" : result.getClass().getSimpleName();
+        return "timeline member " + owner + "." + method.getName() + "/" + method.getParameterTypes().length
+                + " from=" + from + " args=" + argc
+                + " self=" + (self == null ? "null" : self.getClass().getSimpleName()) + " -> " + ret;
+    }
+
+    /** Dex type descriptor vs the live parameter class. */
+    private static boolean sameParams(Method method, java.util.List<String> descriptors) {
+        Class<?>[] live = method.getParameterTypes();
+        if (live.length != descriptors.size()) return false;
+        for (int i = 0; i < live.length; i++) {
+            if (!descriptors.get(i).equals(descriptorOf(live[i]))) return false;
+        }
+        return true;
+    }
+
+    private static String descriptorOf(Class<?> type) {
+        if (type == boolean.class) return "Z";
+        if (type == byte.class) return "B";
+        if (type == char.class) return "C";
+        if (type == short.class) return "S";
+        if (type == int.class) return "I";
+        if (type == long.class) return "J";
+        if (type == float.class) return "F";
+        if (type == double.class) return "D";
+        if (type == void.class) return "V";
+        if (type.isArray()) return "[" + descriptorOf(type.getComponentType());
+        return "L" + type.getName().replace('.', '/') + ";";
+    }
+
+    /** First few invokes inside the found method, so a silent hook still shows what it calls. */
+    private static String shownCalls(DexTypes.Creator found) {
+        StringBuilder out = new StringBuilder();
+        int n = Math.min(6, found.calls.size());
+        for (int i = 0; i < n; i++) {
+            if (i > 0) out.append(" | ");
+            String row = found.calls.get(i);
+            out.append(row.length() > 80 ? row.substring(0, 80) : row);
+        }
+        return out.toString();
+    }
+
+    /** The first classes*.dex in the installed APK whose type table names TimelineWrapper. */
+    private static byte[] dexContaining(String apk, String needle) {
+        if (apk == null) return null;
+        try (ZipFile zip = new ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                byte[] bytes = readEntry(zip, entry);
+                if (DexTypes.countDescriptorContaining(bytes, needle) > 0) return bytes;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Methods that invoke the target, across every classes*.dex. A caller in a later dex
+     * is invisible to a scan of the dex that defines the type. Each row is prefixed with
+     * the dex file name. Capped, and each dex is decoded on its own.
+     */
+    private static java.util.List<String> invokersOf(String apk, String owner, String name, int cap) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (apk == null) return found;
+        try (ZipFile zip = new ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements() && found.size() < cap) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String file = entry.getName();
+                if (!file.startsWith("classes") || !file.endsWith(".dex")) continue;
+                if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                for (String row : DexTypes.allInvokers(readEntry(zip, entry), owner, name, cap - found.size())) {
+                    found.add(file + " " + row);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return found;
+    }
+
+    private static byte[] readEntry(ZipFile zip, java.util.zip.ZipEntry entry) throws java.io.IOException {
+        try (InputStream in = zip.getInputStream(entry)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toByteArray();
+        }
+    }
+
     // ---- GMS / GSF: SIM country iso -> us -------------------------------------------------------
 
     private void hookTelephonyManager(ClassLoader cl) {
@@ -251,9 +471,6 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
-        // log33 kept the timeline and the aligned map by spoofing only these two
-        // reads inside GMS/GSF. Operator codes and SubscriptionInfo were added
-        // later and did not bring the entry back.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
     }
@@ -336,10 +553,314 @@ public class MainHook extends XposedModule {
     // Maps, GMS and GSF and writes one line per distinct answer, capped, so a missing entry
     // can be told apart from "the module never loaded in GMS".
 
-    private static final int MAX_PROBE_LINES = 40;
+    private static final int MAX_PROBE_LINES = 80;
 
     private final java.util.Set<String> probed = java.util.Collections.synchronizedSet(
             new java.util.HashSet<>());
+    private final java.util.Set<Object> refreshed = java.util.Collections.newSetFromMap(
+            new java.util.IdentityHashMap<>());
+    private volatile boolean timelineOpened;
+
+    /**
+     * Logs the value Maps computes for the Timeline menu entry. The deciding class is found by
+     * shape on the installed APK, so an obfuscated rename does not break it. One line per call:
+     * the boxed flag, the entry list size, and the boolean the menu actually reads.
+     */
+    private void watchEntryGate(Context context) {
+        try {
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
+            String desc = null;
+            String hitApk = null;
+            String rowInserter = null;
+            int dexes = 0, unreadable = 0;
+            for (String apk : apks) {
+                if (desc != null || apk == null) break;
+                try (ZipFile zip = new ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements() && desc == null) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                        dexes++;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) { unreadable++; continue; }
+                        desc = DexTypes.findEntryGate(bytes);
+                        if (desc != null) {
+                            hitApk = apk;
+                            rowInserter = DexTypes.findRowInserter(bytes, desc);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    unreadable++;
+                }
+            }
+            if (desc == null) {
+                log("timeline entry gate: not found (apks=%d dexes=%d unreadable=%d)", apks.size(), dexes, unreadable);
+                return;
+            }
+            String binary = desc.substring(1, desc.length() - 1).replace('/', '.');
+            Class<?> type = context.getClassLoader().loadClass(binary);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getParameterTypes().length != 0) continue;
+                if (method.getReturnType() != boolean.class) continue;
+                Method target = method;
+                hook(target).intercept(chain -> {
+                    Object self = chain.getThisObject();
+                    String before = entryState(self);
+                    Object result = chain.proceed();
+                    log("timeline entry %s -> %s (%s)", target.getName(), result, before);
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline entry gate: %s armed=%d apk=%s", binary, armed,
+                    hitApk == null ? "?" : hitApk.substring(hitApk.lastIndexOf('/') + 1));
+            watchRowInserter(context, rowInserter);
+            watchButtonBuilder(context, binary);
+        } catch (Throwable t) {
+            log("timeline entry gate failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** How many buttons are stored on the row model (field {@code d}'s list). */
+    private static int buttonCount(Object self) {
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (!field.getName().equals("d") || java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    Object holder = field.get(self);
+                    if (holder == null) return 0;
+                    for (Class<?> c = holder.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                        for (java.lang.reflect.Field inner : c.getDeclaredFields()) {
+                            if (java.lang.reflect.Modifier.isStatic(inner.getModifiers())) continue;
+                            if (!java.util.List.class.isAssignableFrom(inner.getType())) continue;
+                            inner.setAccessible(true);
+                            Object list = inner.get(holder);
+                            if (list instanceof java.util.List) return ((java.util.List<?>) list).size();
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+        return 0;
+    }
+
+    /** True once the gate holds both the boxed flag and the entry-point payload. */
+    private static boolean dataReady(Object self) {
+        boolean flag = false, payload = false;
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(self);
+                    if (value instanceof Boolean) flag = true;
+                    else if (value != null && !(value instanceof String) && !(value instanceof Number)
+                            && value.getClass().getMethod("size") != null) payload = true;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return flag && payload;
+    }
+
+    /** Re-runs the gate's refresh callback on the main thread, once per payload. */
+    private void watchRowInserter(Context context, String rowInserter) {
+        try {
+            if (rowInserter == null || !rowInserter.contains("->")) {
+                log("timeline row: not found");
+                return;
+            }
+            String owner = rowInserter.substring(1, rowInserter.indexOf(';')).replace('/', '.');
+            String name = rowInserter.substring(rowInserter.indexOf("->") + 2);
+            Class<?> type = context.getClassLoader().loadClass(owner);
+            int armed = 0;
+            for (Method method : type.getDeclaredMethods()) {
+                if (!method.getName().equals(name)) continue;
+                hook(method).intercept(chain -> {
+                    Object result = chain.proceed();
+                    int rows = -1;
+                    try {
+                        java.lang.reflect.Method size = result.getClass().getMethod("size");
+                        Object n = size.invoke(result);
+                        if (n instanceof Integer) rows = (Integer) n;
+                    } catch (Throwable ignored) {
+                    }
+                    log("timeline row %s -> %s size=%d", name, result == null ? "null" : result.getClass().getSimpleName(), rows);
+                    return result;
+                });
+                armed++;
+            }
+            log("timeline row: %s armed=%d", rowInserter, armed);
+        } catch (Throwable t) {
+            log("timeline row failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Logs every method that reads the entry-gate object, so the button builder shows up by name. */
+    private void watchButtonBuilder(Context context, String gateBinary) {
+        try {
+            String gateDesc = "L" + gateBinary.replace('.', '/') + ";";
+            java.util.List<String> found = new java.util.ArrayList<>();
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
+            for (String apk : apks) {
+                if (apk == null) continue;
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) continue;
+                        found.addAll(DexTypes.findButtonBuilder(bytes, gateDesc));
+                    }
+                }
+            }
+            if (found.isEmpty()) { log("timeline buttons: not found"); return; }
+            int armed = 0;
+            for (String ref : found) {
+                String owner = ref.substring(1, ref.indexOf(';')).replace('/', '.');
+                String name = ref.substring(ref.indexOf("->") + 2);
+                Class<?> type = context.getClassLoader().loadClass(owner);
+                for (Method method : type.getDeclaredMethods()) {
+                    if (!method.getName().equals(name)) continue;
+                    hook(method).intercept(chain -> {
+                        Object result = chain.proceed();
+                        log("timeline buttons %s -> %s", ref, result == null ? "null" : result.getClass().getSimpleName());
+                        return result;
+                    });
+                    armed++;
+                }
+            }
+            log("timeline buttons: %d readers armed=%d", found.size(), armed);
+        } catch (Throwable t) {
+            log("timeline buttons failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Logs the button-layout pass: how many buttons it reads out of the row model. */
+    private void watchButtonLayout(Context context) {
+        try {
+            java.util.List<String> found = new java.util.ArrayList<>();
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
+            for (String apk : apks) {
+                if (apk == null) continue;
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) continue;
+                        found.addAll(DexTypes.findButtonLayout(bytes));
+                    }
+                }
+            }
+            if (found.isEmpty()) { log("timeline layout: not found"); return; }
+            int armed = 0;
+            for (String ref : found) {
+                String owner = ref.substring(1, ref.indexOf(';')).replace('/', '.');
+                Class<?> type = context.getClassLoader().loadClass(owner);
+                for (Method method : type.getDeclaredMethods()) {
+                    if (!method.getName().equals("oj")) continue;
+                    String tag = ref;
+                    hook(method).intercept(chain -> {
+                        int n = -1;
+                        for (Object arg : chain.getArgs()) {
+                            try {
+                                Object list = arg.getClass().getMethod("n").invoke(arg);
+                                if (list instanceof java.util.List) { n = ((java.util.List<?>) list).size(); break; }
+                            } catch (Throwable ignored) {}
+                        }
+                        log("timeline layout %s -> %d", tag, n);
+                        return chain.proceed();
+                    });
+                    armed++;
+                }
+            }
+            log("timeline layout: %d armed=%d", found.size(), armed);
+        } catch (Throwable t) {
+            log("timeline layout failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Every instance field on the gate object, so a return flip can be matched to a field. */
+    private static String entryState(Object self) {
+        return entryState(self, 0);
+    }
+
+    private static String entryState(Object self, int depth) {
+        if (self == null) return "self=null";
+        StringBuilder out = new StringBuilder();
+        for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (out.length() > 0) out.append(' ');
+                out.append(field.getName()).append(':');
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(self);
+                    if (value == null) {
+                        out.append(field.getType().getSimpleName()).append("=null");
+                    } else if (value instanceof Boolean || value instanceof Number || value instanceof String) {
+                        String text = String.valueOf(value);
+                        out.append(text.length() > 24 ? text.substring(0, 24) : text);
+                    } else if (field.getName().equals("g") && depth == 0) {
+                        out.append('{').append(entryState(value, depth + 1)).append('}');
+                    } else if (field.getName().equals("d") && depth == 0) {
+                        StringBuilder inner = new StringBuilder();
+                        for (Class<?> c = value.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+                            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                                if (!java.util.List.class.isAssignableFrom(f.getType())) continue;
+                                f.setAccessible(true);
+                                try {
+                                    Object v = f.get(value);
+                                    int n = v instanceof java.util.List ? ((java.util.List<?>) v).size() : -1;
+                                    inner.append(f.getName()).append('=').append(n).append(' ');
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                        out.append("buttons{").append(inner).append('}');
+                    } else if (field.getName().equals("b") && depth == 1 && value instanceof java.util.List) {
+                        java.util.List<?> items = (java.util.List<?>) value;
+                        out.append('[');
+                        for (int n = 0; n < items.size() && n < 8; n++) {
+                            if (n > 0) out.append(' ');
+                            out.append(entryState(items.get(n), depth + 1));
+                        }
+                        out.append(']');
+                    } else {
+                        String sized = null;
+                        try {
+                            sized = value.getClass().getSimpleName() + "#"
+                                    + value.getClass().getMethod("size").invoke(value);
+                        } catch (Throwable ignored) {
+                        }
+                        out.append(sized != null ? sized : value.getClass().getSimpleName());
+                    }
+                } catch (Throwable ignored) {
+                    out.append("err");
+                }
+                if (out.length() > 280) return out.append('…').toString();
+            }
+        }
+        return out.length() == 0 ? "nofields" : out.toString();
+    }
 
     private void hookTimelineReads(ClassLoader cl, boolean gmsSide) {
         String[] names = gmsSide
@@ -386,5 +907,10 @@ public class MainHook extends XposedModule {
         String key = kind + " " + owner + "." + member + "=" + value;
         if (probed.size() >= MAX_PROBE_LINES || !probed.add(key)) return;
         log("%s %s", kind, TimelineProbe.line(owner, member, value));
+    }
+
+    private void noteGate(String line) {
+        if (probed.size() >= MAX_PROBE_LINES || !probed.add(line)) return;
+        log("%s", line);
     }
 }
