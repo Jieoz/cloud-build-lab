@@ -625,6 +625,10 @@ public class MainHook extends XposedModule {
 
     /** Every instance field on the gate object, so a return flip can be matched to a field. */
     private static String entryState(Object self) {
+        return entryState(self, 0);
+    }
+
+    private static String entryState(Object self, int depth) {
         if (self == null) return "self=null";
         StringBuilder out = new StringBuilder();
         for (Class<?> type = self.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
@@ -640,6 +644,8 @@ public class MainHook extends XposedModule {
                     } else if (value instanceof Boolean || value instanceof Number || value instanceof String) {
                         String text = String.valueOf(value);
                         out.append(text.length() > 24 ? text.substring(0, 24) : text);
+                    } else if (field.getName().equals("g") && depth == 0) {
+                        out.append('{').append(entryState(value, depth + 1)).append('}');
                     } else {
                         String sized = null;
                         try {
