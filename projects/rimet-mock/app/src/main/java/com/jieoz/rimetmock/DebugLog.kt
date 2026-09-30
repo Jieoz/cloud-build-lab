@@ -13,6 +13,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Log sink — copied VERBATIM from the verified pixelify-lsp102 DebugLog (only the names differ).
@@ -32,20 +33,18 @@ object DebugLog {
     const val TAG = "RimetMock"
     const val DIR_NAME = "RimetMock"
     private const val EXT = ".txt"
-    // NO per-process random suffix: DingTalk runs 3 processes and each was creating its OWN
-    // file, so the user always saw a fraction of the picture (evidence: his file had only
-    // package-ready + onCreate while hooks fired in other processes). One date-suffixed file;
-    // appends use O_APPEND semantics so concurrent processes never corrupt each other's lines.
-    @Volatile
-    private var host: Context? = null
+    private val sessionSuffix: String = UUID.randomUUID().toString().substring(0, 6)
+
+    fun fileName(now: Date = Date()): String =
+        "rimetmock-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}-${Process.myPid()}-$sessionSuffix$EXT"
 
     @Volatile
     private var enabled: Boolean = false
 
     private val pending = ArrayDeque<String>()
 
-    fun fileName(now: Date = Date()): String =
-        "rimetmock-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}$EXT"
+    @Volatile
+    private var host: Context? = null
 
     fun bind(context: Context) {
         host = context.applicationContext ?: context
@@ -81,19 +80,13 @@ object DebugLog {
 
     private fun write(row: String) {
         val context = host ?: return
-        // App-external is the directory Jay actually opens
-        // (/sdcard/Android/data/com.alibaba.android.rimet/files/RimetMock/).
-        // It must be written on EVERY line. MediaStore/Download are additional copies;
-        // a successful insert must not suppress the file he is looking at.
         val ext = appendAppExternal(context, row)
-        val file = appendFile(row)
-        if (file != null) indexDownload(context, file)
-        val ms = if (file == null && Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
+        val ms = if (Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
+        val file = if (!ms) appendFile(row) else null
         val summary = buildString {
             append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
-            append(if (file != null) "; download-file -> ${file.absolutePath} (indexed=${indexError == null})" else "; download-file FAILED")
-            if (file == null) append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
-            if (indexError != null) append("; index FAILED ($indexError)")
+            append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
+            if (!ms) append(if (file != null) "; download-file -> ${file.absolutePath}" else "; download-file FAILED")
         }
         if (summary != reportedSink) {
             reportedSink = summary
@@ -136,9 +129,6 @@ object DebugLog {
     private fun publicDir(): File =
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
-    @Volatile
-    private var indexError: String? = null
-
     private fun appendFile(row: String): File? = runCatching {
         val dir = File(publicDir(), DIR_NAME)
         dir.mkdirs()
@@ -146,26 +136,6 @@ object DebugLog {
         f.appendText(row)
         f
     }.getOrNull()
-
-    /** insert(Downloads) returns null inside DingTalk. Register the file that already exists. */
-    private fun indexDownload(context: Context, file: File) {
-        indexError = null
-        if (Build.VERSION.SDK_INT < 29) return
-        try {
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
-                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath())
-                put(MediaStore.MediaColumns.DATA, file.absolutePath)
-                put(MediaStore.MediaColumns.SIZE, file.length())
-            }
-            if (context.contentResolver.insert(collection(), values) == null) {
-                indexError = "insert(DATA) returned null"
-            }
-        } catch (t: Throwable) {
-            indexError = t.javaClass.simpleName + ": " + t.message
-        }
-    }
 
     private fun appendMediaStore(context: Context, row: String): Boolean {
         mediaStoreError = null
