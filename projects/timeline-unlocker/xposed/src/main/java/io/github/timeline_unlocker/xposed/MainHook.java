@@ -341,7 +341,7 @@ public class MainHook extends XposedModule {
                 Method target = method;
                 hook(target).intercept(chain -> {
                     Object result = chain.proceed();
-                    noteGate(memberLine(binary, target, chain.getThisObject(), chain.getArgs(), result));
+                    noteGate(memberLine(binary, target, chain.getThisObject(), chain.getArgs().size(), result));
                     return result;
                 });
                 armed++;
@@ -352,7 +352,7 @@ public class MainHook extends XposedModule {
         }
     }
 
-    private static String memberLine(String owner, Method method, Object self, Object[] args, Object result) {
+    private static String memberLine(String owner, Method method, Object self, int argc, Object result) {
         String from = "none";
         StackTraceElement[] stack = new Throwable().getStackTrace();
         for (int i = 0; i < stack.length && i < 30; i++) {
@@ -366,7 +366,7 @@ public class MainHook extends XposedModule {
         String ret = result instanceof Boolean || result instanceof Integer || result instanceof Long
                 ? String.valueOf(result) : result == null ? "null" : result.getClass().getSimpleName();
         return "timeline member " + owner + "." + method.getName() + "/" + method.getParameterTypes().length
-                + " from=" + from + " args=" + (args == null ? 0 : args.length)
+                + " from=" + from + " args=" + argc
                 + " self=" + (self == null ? "null" : self.getClass().getSimpleName()) + " -> " + ret;
     }
 
