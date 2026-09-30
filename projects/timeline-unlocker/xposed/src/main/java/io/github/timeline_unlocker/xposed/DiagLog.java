@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
 
 /**
  * Diagnostic log, off by default.
@@ -35,8 +34,8 @@ import java.util.UUID;
  *
  * <p><b>While ON</b>: the hooked process appends UTF-8 lines to a single {@code text/plain} row in
  * the system Downloads collection
- * ({@code Download/TimelineUnlocker/timeline-<pkg>-yyyyMMdd-<6 hex>.txt}) on one dedicated
- * background thread; the row Uri is cached so each flush is a single append.</p>
+ * ({@code Download/TimelineUnlocker/timeline-yyyyMMdd.txt}) on one dedicated
+ * background thread. Maps and GMS share that one file so the capture is a single document.</p>
  */
 public final class DiagLog {
 
@@ -52,7 +51,6 @@ public final class DiagLog {
 
     private static final Object LOCK = new Object();
     private static final List<String> pending = new ArrayList<>();
-    private static final String sessionSuffix = UUID.randomUUID().toString().substring(0, 6);
 
     private static volatile boolean enabled;   // default false: off until bind(context, true)
     private static volatile Context appContext;
@@ -80,13 +78,13 @@ public final class DiagLog {
     }
 
     public static String displayPath() {
-        String pkg = appContext == null ? "module" : appContext.getPackageName();
-        return "Download/" + DIR_NAME + "/" + fileName(pkg);
+        return "Download/" + DIR_NAME + "/" + fileName();
     }
 
     public static void line(String message) {
         if (!enabled) return;
-        String text = stamp() + " "
+        String pkg = appContext == null ? "module" : appContext.getPackageName();
+        String text = stamp() + " [" + pkg + "] "
                 + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
         synchronized (LOCK) {
             if (pending.size() >= MAX_QUEUED) pending.remove(0);
@@ -95,9 +93,9 @@ public final class DiagLog {
         flushAsync();
     }
 
-    static String fileName(String packageName) {
+    static String fileName() {
         String day = new SimpleDateFormat("yyyyMMdd", Locale.US).format(new Date());
-        return "timeline-" + safe(packageName) + "-" + day + "-" + sessionSuffix + ".txt";
+        return "timeline-" + day + ".txt";
     }
 
     private static void flushAsync() {
@@ -148,7 +146,7 @@ public final class DiagLog {
         try {
             ContentResolver resolver = context.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-            String name = fileName(context.getPackageName());
+            String name = fileName();
             String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
             Uri uri = rowUri != null ? rowUri : findRow(resolver, collection, relative, name);
             if (uri == null) {
@@ -179,7 +177,7 @@ public final class DiagLog {
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
             if (!dir.exists() && !dir.mkdirs()) return false;
             try (FileOutputStream fos = new FileOutputStream(
-                    new File(dir, fileName(context.getPackageName())), true)) {
+                    new File(dir, fileName()), true)) {
                 fos.write(bytes);
             }
             return true;

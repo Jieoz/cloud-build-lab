@@ -528,25 +528,39 @@ final class DexTypes {
             int directMethods = uleb(dex, cursor);
             int virtualMethods = uleb(dex, cursor);
             skipEncodedFields(dex, cursor, staticFields + instanceFields);
-            int methodIdx = 0;
-            int total = directMethods + virtualMethods;
-            for (int i = 0; i < total; i++) {
-                if (cursor[0] >= dex.length) break;
-                methodIdx += uleb(dex, cursor);
-                uleb(dex, cursor);
-                int codeOff = uleb(dex, cursor);
-                if (codeOff <= 0 || codeOff >= dex.length || methodIdx >= methodIds) continue;
-                int idPos = methodOff + methodIdx * 8;
-                String name = string(dex, stringOff, u32(dex, idPos + 4));
-                if ((owner + "->" + name).equals(skip)) continue;
-                java.util.List<String> calls = new java.util.ArrayList<>();
-                int hit = decodeCallees(dex, codeOff, protoOff, targets, calls, 80);
-                if (hit >= 0) {
-                    int protoIdx = u16(dex, idPos + 2);
-                    String ret = protoReturn(dex, protoOff, protoIdx);
-                    return new Creator(owner, name, ret, protoArity(dex, protoOff, protoIdx),
-                            protoParams(dex, protoOff, protoIdx), calls, hit);
-                }
+            Creator found = scanMethods(dex, cursor, directMethods, methodOff, methodIds,
+                    stringOff, protoOff, owner, skip, targets);
+            if (found != null) return found;
+            found = scanMethods(dex, cursor, virtualMethods, methodOff, methodIds,
+                    stringOff, protoOff, owner, skip, targets);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /**
+     * One encoded_method section. Direct and virtual each restart the method index at 0;
+     * carrying the index across both sections reads a field name as a method.
+     */
+    private static Creator scanMethods(byte[] dex, int[] cursor, int count, int methodOff, int methodIds,
+            int stringOff, int protoOff, String owner, String skip, java.util.List<Integer> targets) {
+        int methodIdx = 0;
+        for (int i = 0; i < count; i++) {
+            if (cursor[0] >= dex.length) return null;
+            methodIdx += uleb(dex, cursor);
+            uleb(dex, cursor);
+            int codeOff = uleb(dex, cursor);
+            if (codeOff <= 0 || codeOff >= dex.length || methodIdx >= methodIds) continue;
+            int idPos = methodOff + methodIdx * 8;
+            String name = string(dex, stringOff, u32(dex, idPos + 4));
+            if ((owner + "->" + name).equals(skip)) continue;
+            java.util.List<String> calls = new java.util.ArrayList<>();
+            int hit = decodeCallees(dex, codeOff, protoOff, targets, calls, 80);
+            if (hit >= 0) {
+                int protoIdx = u16(dex, idPos + 2);
+                String ret = protoReturn(dex, protoOff, protoIdx);
+                return new Creator(owner, name, ret, protoArity(dex, protoOff, protoIdx),
+                        protoParams(dex, protoOff, protoIdx), calls, hit);
             }
         }
         return null;

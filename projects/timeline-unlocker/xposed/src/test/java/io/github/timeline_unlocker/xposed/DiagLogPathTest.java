@@ -8,19 +8,20 @@ import static org.junit.Assert.assertTrue;
 public class DiagLogPathTest {
 
     @Test
-    public void fileNameIsTheSystemDownloadShape() {
-        String name = DiagLog.fileName("com.google.android.apps.maps");
-        assertTrue(name.startsWith("timeline-com.google.android.apps.maps-"));
+    public void fileNameIsOneSharedDocument() {
+        String name = DiagLog.fileName();
+        assertTrue(name.startsWith("timeline-"));
         assertTrue(name.endsWith(".txt"));
-        assertFalse(name.contains("session-"));
+        assertFalse(name.contains("maps"));
+        assertFalse(name.contains("session"));
+        assertTrue(name.matches("timeline-\\d{8}\\.txt"));
     }
 
     @Test
-    public void fileNameSanitizesPackage() {
-        String name = DiagLog.fileName("weird/../pkg name");
+    public void fileNameHasNoPackage() {
+        String name = DiagLog.fileName();
         assertFalse(name.contains("/"));
         assertFalse(name.contains(" "));
-        assertTrue(name.startsWith("timeline-"));
     }
 
     @Test
