@@ -993,4 +993,59 @@ final class DexTypes {
     private static void skipEncodedMethods(byte[] dex, int[] k, int count) {
         for (int i = 0; i < count; i++) { uleb(dex, k); uleb(dex, k); uleb(dex, k); }
     }
+
+    /** Methods that lay a button list into a row: named {@code oj}, body calls {@code n()}. */
+    static java.util.List<String> findButtonLayout(byte[] dex) {
+        java.util.List<String> hits = new java.util.ArrayList<>();
+        if (dex == null || dex.length < 0x70) return hits;
+        int stringOff = u32(dex, 0x3c);
+        int typeOff = u32(dex, 0x44);
+        int methodOff = u32(dex, 0x5c);
+        int methodIds = u32(dex, 0x58);
+        int classDefs = u32(dex, 0x60);
+        int classOff = u32(dex, 0x64);
+        java.util.Set<Integer> nMethods = new java.util.HashSet<>();
+        for (int m = 0; m < methodIds; m++) {
+            if ("n".equals(string(dex, stringOff, u32(dex, methodOff + m * 8 + 4)))) nMethods.add(m);
+        }
+        if (nMethods.isEmpty()) return hits;
+        for (int c = 0; c < classDefs; c++) {
+            int cp = classOff + c * 32;
+            if (cp < 0 || cp + 32 > dex.length) break;
+            int data = u32(dex, cp + 24);
+            if (data <= 0 || data >= dex.length) continue;
+            int[] k = new int[]{data};
+            int staticFields = uleb(dex, k), instanceFields = uleb(dex, k), direct = uleb(dex, k), virtual = uleb(dex, k);
+            skipEncodedFields(dex, k, staticFields + instanceFields);
+            skipEncodedMethods(dex, k, direct);
+            String hit = layoutMethod(dex, k, virtual, methodOff, stringOff, nMethods);
+            if (hit != null) hits.add(typeName(dex, stringOff, typeOff, u16(dex, cp)) + "->" + hit);
+        }
+        return hits;
+    }
+
+    private static String layoutMethod(byte[] dex, int[] k, int count, int methodOff, int stringOff,
+            java.util.Set<Integer> nMethods) {
+        int idx = 0;
+        for (int i = 0; i < count; i++) {
+            idx += uleb(dex, k);
+            uleb(dex, k);
+            int code = uleb(dex, k);
+            if (code <= 0 || code + 16 > dex.length) continue;
+            int mp = methodOff + idx * 8;
+            if (!"oj".equals(string(dex, stringOff, u32(dex, mp + 4)))) continue;
+            int insns = u32(dex, code + 12);
+            int start = code + 16;
+            int end = Math.min(dex.length, start + insns * 2);
+            for (int pc = start; pc + 6 <= end; ) {
+                int op = dex[pc] & 0xff;
+                if (op >= 0x6e && op <= 0x72 && nMethods.contains(u16(dex, pc + 2)))
+                    return "oj";
+                int u = op == 0 ? 1 : ((op >= 0x6e && op <= 0x78) ? 3 : 2);
+                if (u <= 0) break;
+                pc += u * 2;
+            }
+        }
+        return null;
+    }
 }

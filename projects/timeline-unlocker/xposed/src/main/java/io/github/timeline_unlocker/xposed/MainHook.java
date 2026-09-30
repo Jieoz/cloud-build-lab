@@ -750,8 +750,59 @@ public class MainHook extends XposedModule {
                 }
             }
             log("timeline buttons: %d readers armed=%d", found.size(), armed);
+            watchButtonLayout(context);
         } catch (Throwable t) {
             log("timeline buttons failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    /** Logs the button-layout pass: how many buttons it reads out of the row model. */
+    private void watchButtonLayout(Context context) {
+        try {
+            java.util.List<String> found = new java.util.ArrayList<>();
+            java.util.List<String> apks = new java.util.ArrayList<>();
+            apks.add(context.getApplicationInfo().sourceDir);
+            String[] splits = context.getApplicationInfo().splitSourceDirs;
+            if (splits != null) java.util.Collections.addAll(apks, splits);
+            for (String apk : apks) {
+                if (apk == null) continue;
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(apk)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) continue;
+                        found.addAll(DexTypes.findButtonLayout(bytes));
+                    }
+                }
+            }
+            if (found.isEmpty()) { log("timeline layout: not found"); return; }
+            int armed = 0;
+            for (String ref : found) {
+                String owner = ref.substring(1, ref.indexOf(';')).replace('/', '.');
+                Class<?> type = context.getClassLoader().loadClass(owner);
+                for (Method method : type.getDeclaredMethods()) {
+                    if (!method.getName().equals("oj")) continue;
+                    String tag = ref;
+                    hook(method).intercept(chain -> {
+                        int n = -1;
+                        for (Object arg : chain.getArgs()) {
+                            try {
+                                Object list = arg.getClass().getMethod("n").invoke(arg);
+                                if (list instanceof java.util.List) { n = ((java.util.List<?>) list).size(); break; }
+                            } catch (Throwable ignored) {}
+                        }
+                        log("timeline layout %s -> %d", tag, n);
+                        return chain.proceed();
+                    });
+                    armed++;
+                }
+            }
+            log("timeline layout: %d armed=%d", found.size(), armed);
+        } catch (Throwable t) {
+            log("timeline layout failed: %s", t.getClass().getSimpleName());
         }
     }
 
