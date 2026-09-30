@@ -477,9 +477,12 @@ final class DexTypes {
             this.targetIndex = targetIndex;
         }
 
-        /** {@code owner->name}, usable to skip this method when hunting its own caller. */
+        /** {@code owner->name(param descriptors)}, so a short obfuscated name does not skip siblings. */
         String signature() {
-            return owner + "->" + name;
+            StringBuilder out = new StringBuilder();
+            out.append(owner).append("->").append(name).append('(');
+            for (int i = 0; i < params.size(); i++) out.append(params.get(i)).append(',');
+            return out.append(')').toString();
         }
     }
 
@@ -553,7 +556,7 @@ final class DexTypes {
             if (codeOff <= 0 || codeOff >= dex.length || methodIdx >= methodIds) continue;
             int idPos = methodOff + methodIdx * 8;
             String name = string(dex, stringOff, u32(dex, idPos + 4));
-            if ((owner + "->" + name).equals(skip)) continue;
+            if ((owner + "->" + name + protoKey(dex, protoOff, u16(dex, idPos + 2))).equals(skip)) continue;
             java.util.List<String> calls = new java.util.ArrayList<>();
             int hit = decodeCallees(dex, codeOff, protoOff, targets, calls, 80);
             if (hit >= 0) {
@@ -708,5 +711,11 @@ final class DexTypes {
             out.add(typeName(dex, stringOff, typeOff, u16(dex, at)));
         }
         return out;
+    }
+
+    private static String protoKey(byte[] dex, int protoOff, int protoIdx) {
+        StringBuilder out = new StringBuilder("(");
+        for (String param : protoParams(dex, protoOff, protoIdx)) out.append(param).append(',');
+        return out.append(')').toString();
     }
 }

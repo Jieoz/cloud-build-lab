@@ -316,8 +316,9 @@ public class MainHook extends XposedModule {
                         chain.getArgs().toArray(), result));
                 return result;
             });
-            log("timeline gate %s: %s dex=%s arity=%d armed=1 name=%s/%d",
-                    role, binary, found.name, found.arity, live, target.getParameterTypes().length);
+            log("timeline gate %s: %s dex=%s arity=%d armed=1 name=%s/%d calls=%s",
+                    role, binary, found.name, found.arity, live,
+                    target.getParameterTypes().length, shownCalls(found));
         } catch (Throwable t) {
             log("timeline gate %s failed: %s (%s)", role, binary, t.getClass().getSimpleName());
         }
@@ -345,6 +346,18 @@ public class MainHook extends XposedModule {
         if (type == void.class) return "V";
         if (type.isArray()) return "[" + descriptorOf(type.getComponentType());
         return "L" + type.getName().replace('.', '/') + ";";
+    }
+
+    /** First few invokes inside the found method, so a silent hook still shows what it calls. */
+    private static String shownCalls(DexTypes.Creator found) {
+        StringBuilder out = new StringBuilder();
+        int n = Math.min(6, found.calls.size());
+        for (int i = 0; i < n; i++) {
+            if (i > 0) out.append(" | ");
+            String row = found.calls.get(i);
+            out.append(row.length() > 80 ? row.substring(0, 80) : row);
+        }
+        return out.toString();
     }
 
     /** The first classes*.dex in the installed APK whose type table names TimelineWrapper. */
