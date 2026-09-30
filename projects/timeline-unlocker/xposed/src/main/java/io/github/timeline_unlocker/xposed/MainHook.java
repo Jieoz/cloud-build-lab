@@ -576,6 +576,7 @@ public class MainHook extends XposedModule {
             if (splits != null) java.util.Collections.addAll(apks, splits);
             String desc = null;
             String hitApk = null;
+            int dexes = 0, unreadable = 0;
             for (String apk : apks) {
                 if (desc != null || apk == null) break;
                 try (ZipFile zip = new ZipFile(apk)) {
@@ -585,14 +586,18 @@ public class MainHook extends XposedModule {
                         String name = entry.getName();
                         if (!name.startsWith("classes") || !name.endsWith(".dex")) continue;
                         if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
-                        desc = DexTypes.findEntryGate(readEntry(zip, entry));
+                        dexes++;
+                        byte[] bytes = readEntry(zip, entry);
+                        if (bytes == null) { unreadable++; continue; }
+                        desc = DexTypes.findEntryGate(bytes);
                         if (desc != null) hitApk = apk;
                     }
                 } catch (Throwable ignored) {
+                    unreadable++;
                 }
             }
             if (desc == null) {
-                log("timeline entry gate: not found (apks=%d)", apks.size());
+                log("timeline entry gate: not found (apks=%d dexes=%d unreadable=%d)", apks.size(), dexes, unreadable);
                 return;
             }
             String binary = desc.substring(1, desc.length() - 1).replace('/', '.');

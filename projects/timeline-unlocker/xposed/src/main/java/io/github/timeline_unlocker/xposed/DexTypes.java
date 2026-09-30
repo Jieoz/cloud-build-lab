@@ -780,9 +780,10 @@ final class DexTypes {
 
     /**
      * The class that decides whether the Timeline menu entry is shown. Found by shape, not by
-     * name: one no-arg method reads a {@code cdup} field and a {@code Boolean} field, then writes
-     * a {@code boolean} field. On the 26.38 package that is {@code akoj.b}, and the written field
-     * is what the menu reads. Returns the class descriptor, or null.
+     * name: one no-arg method that returns boolean, reads a {@code Boolean} field and one other
+     * object field, then writes a {@code boolean} field. The object field's concrete type differs
+     * between Maps builds, so it is matched only as "some object", not by name. On the 26.38
+     * package that method is {@code akoj.b}. Returns the class descriptor, or null.
      */
     static String findEntryGate(byte[] dex) {
         if (dex == null || dex.length < 0x70) return null;
@@ -813,7 +814,7 @@ final class DexTypes {
         return null;
     }
 
-    /** True when one no-arg method in this list reads cdup + Boolean and writes a boolean. */
+    /** True when one no-arg boolean method reads a Boolean plus one other object, and writes a boolean. */
     private static boolean gateMethod(byte[] dex, int[] k, int count, int methodOff, int stringOff,
             int protoOff, int fieldOff, int typeOff) {
         int idx = 0;
@@ -824,24 +825,26 @@ final class DexTypes {
             if (code <= 0 || code + 16 > dex.length) continue;
             int mp = methodOff + idx * 8;
             if (mp < 0 || mp + 8 > dex.length) continue;
-            int paramOff = u32(dex, protoOff + u16(dex, mp + 2) * 12 + 8);
+            int protoIdx = u16(dex, mp + 2);
+            if (!"Z".equals(typeName(dex, stringOff, typeOff, u32(dex, protoOff + protoIdx * 12 + 4)))) continue;
+            int paramOff = u32(dex, protoOff + protoIdx * 12 + 8);
             int nparams = paramOff == 0 ? 0 : (paramOff > 0 && paramOff + 4 <= dex.length ? u32(dex, paramOff) : -1);
             if (nparams != 0) continue;
             int insns = u32(dex, code + 12);
             int start = code + 16;
             int end = Math.min(dex.length, start + insns * 2);
-            boolean cdup = false, boxed = false, put = false;
+            boolean boxed = false, put = false, other = false;
             for (int pc = start; pc + 4 <= end; pc += 2) {
                 int op = dex[pc] & 0xff;
                 if (op == 0x54 || op == 0x55) {
                     String t = fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2));
-                    if ("Lcdup;".equals(t)) cdup = true;
                     if ("Ljava/lang/Boolean;".equals(t)) boxed = true;
+                    else if (t.startsWith("L")) other = true;
                 } else if (op == 0x5b || op == 0x5c) {
                     if ("Z".equals(fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2)))) put = true;
                 }
             }
-            if (cdup && boxed && put) return true;
+            if (boxed && put && other) return true;
         }
         return false;
     }
