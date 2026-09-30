@@ -1,27 +1,43 @@
 package io.github.timeline_unlocker.xposed;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.content.Intent;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
-import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.File;
-
-/** Launcher screen. The hooks do not run here. */
+/**
+ * Settings only. The switch is stored in libxposed remote preferences through the Xposed
+ * <b>service</b> (writable in this module app process); the hooked Maps process reads it once at
+ * startup through the read-only hook interface (see {@link DiagLog} / {@link ModuleRuntime}).
+ * No export button, no file merging, no host private-directory reads.
+ *
+ * <p>The service binds asynchronously a moment after the process starts (only when the module is
+ * activated in LSPosed), so the UI starts binding in {@code onCreate} and refreshes the control
+ * state a few times until the service is ready — the switch was previously dead because the UI
+ * tried to write through the hook interface, which does not exist in this process.</p>
+ */
 public class LogExportActivity extends Activity {
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private Switch toggle;
+    private TextView body;
+    private int retries;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ModuleRuntime.startServiceBinding();
+
         int pad = dp(20);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -34,65 +50,77 @@ public class LogExportActivity extends Activity {
         version.setPadding(0, dp(4), 0, dp(16));
         root.addView(version);
 
-        Switch toggle = new Switch(this);
+        toggle = new Switch(this);
         toggle.setText("调试日志");
         toggle.setTextColor(Color.parseColor("#FFFFFF"));
-        toggle.setChecked(DiagLog.isEnabled(this));
         toggle.setOnCheckedChangeListener(this::onToggle);
         root.addView(toggle);
 
-        TextView body = text(
-                "默认关闭，关闭时不写文件。打开后，地图、Play 服务、GSF 会把日志写到「下载/TimelineUnlocker」。"
-                        + "改完开关要强停这三个应用，或重启一次。",
-                15, "#E0E0E0");
+        body = text("", 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
 
-        Button export = new Button(this);
-        export.setText("导出调试日志");
-        export.setAllCaps(false);
-        export.setOnClickListener(v -> exportLogs());
-        root.addView(export);
-
-        TextView hint = text("导出只是把下载目录里已有的会话文件合成一份。开关关着、或打开后还没重新进地图，导出来是空的。", 12, "#757575");
-        hint.setPadding(0, dp(24), 0, 0);
-        root.addView(hint);
+        TextView open = text("打开系统下载", 16, "#8AB4F8");
+        open.setOnClickListener(v -> openDownloads());
+        root.addView(open);
         setContentView(root);
+
+        refreshState();
+    }
+
+    /**
+     * Reflect the current service state. The service binds asynchronously, so re-check a few times
+     * with a short backoff instead of deciding once at {@code onCreate}.
+     */
+    private void refreshState() {
+        boolean ready = ModuleRuntime.serviceReady();
+        setControlsWithoutCallback(
+                ready,
+                ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
+        body.setText(ready
+                ? "默认关闭。开关在地图「重新启动」时读取一次：改动后请强停地图再打开，日志出现在系统「下载」。"
+                : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
+        if (!ready && retries < 10) {
+            retries++;
+            main.postDelayed(this::refreshState, 300);
+        }
+    }
+
+    private void setControlsWithoutCallback(boolean enabled, boolean checked) {
+        toggle.setOnCheckedChangeListener(null);
+        toggle.setEnabled(enabled);
+        toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener(this::onToggle);
     }
 
     private void onToggle(CompoundButton button, boolean checked) {
-        DiagLog.setEnabled(this, checked);
+        boolean ok = ModuleRuntime.writeSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON, checked);
+        if (!ok) {
+            setControlsWithoutCallback(button.isEnabled(), !checked);
+            Toast.makeText(this, "开关没写上，框架未连接或模块未激活。", Toast.LENGTH_LONG).show();
+            return;
+        }
         Toast.makeText(this,
                 checked
-                        ? "已打开。强停地图和 Play 服务后再进地图，日志才会写到「下载/TimelineUnlocker」。"
-                        : "已关闭。正在运行的地图和 Play 服务要强停后才停止写日志。",
+                        ? "已打开。请强停地图再重新打开，文件出现在系统「下载」。"
+                        : "已关闭。地图下次重启后停止写。",
                 Toast.LENGTH_LONG).show();
     }
 
-    private void exportLogs() {
+    private void openDownloads() {
         try {
-            File out = DiagLog.exportToDownloads(this);
-            Toast.makeText(this, "已导出 " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
-            Intent view = new Intent(Intent.ACTION_VIEW);
-            view.setDataAndType(Uri.fromFile(out), "text/plain");
-            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                startActivity(view);
-            } catch (Throwable ignored) {
-                // The file is already in Downloads. Opening it is optional.
-            }
+            startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
         } catch (Throwable t) {
-            Toast.makeText(this, "导出失败: " + t.getClass().getSimpleName() + ": " + t.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "打不开系统下载", Toast.LENGTH_LONG).show();
         }
     }
 
     private String versionLine() {
         try {
             android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return "v" + info.versionName + " (" + info.versionCode + ") · 基于 SherlockChiang/ReLocationReportEnabler";
+            return "v" + info.versionName + " (" + info.versionCode + ")";
         } catch (Throwable t) {
-            return "基于 SherlockChiang/ReLocationReportEnabler";
+            return "";
         }
     }
 
