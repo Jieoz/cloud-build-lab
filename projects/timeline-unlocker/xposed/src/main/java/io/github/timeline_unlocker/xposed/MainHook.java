@@ -56,10 +56,10 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            // log33 baseline: history points only. Every Maps-side spoof (telephony iso,
-            // operators, the bvsu/bvsu.i guess) changed nothing except risking the blue dot.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
+            hookTelephonyManager(cl);
+            hookSystemProperties(cl);
         } else {
             // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
             // are the working pair. Keep exactly that.
@@ -473,8 +473,6 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
-        // log33 pair: the two country-iso reads plus the system properties. Operator
-        // spoofs (log49+) never produced the entry; do not re-add them silently.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
     }
