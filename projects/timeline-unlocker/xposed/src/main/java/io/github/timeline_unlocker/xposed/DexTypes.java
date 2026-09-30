@@ -835,7 +835,7 @@ final class DexTypes {
                 int op = dex[pc] & 0xff;
                 if (op == 0x54 || op == 0x55) {
                     String t = fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2));
-                    if (t.endsWith("/cdup;")) cdup = true;
+                    if ("Lcdup;".equals(t)) cdup = true;
                     if ("Ljava/lang/Boolean;".equals(t)) boxed = true;
                 } else if (op == 0x5b || op == 0x5c) {
                     if ("Z".equals(fieldType(dex, stringOff, typeOff, fieldOff, u16(dex, pc + 2)))) put = true;
