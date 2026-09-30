@@ -81,25 +81,23 @@ object DebugLog {
 
     private fun write(row: String) {
         val context = host ?: return
-        // MediaStore first: that is the row the Downloads app and "查看调试日志" actually open.
-        // Direct Download, then the host's external-files dir, only if MediaStore fails.
-        // The failure reason is reported once so a silent miss is visible in the LSPosed log.
-        // Channel order is the verified pixelify contract: MediaStore first so the file is
-        // indexed under Download/RimetMock/ and the "查看调试日志" button can open it.
-        // Direct Download and the app-external dir are fallbacks, not the place the user reads.
-        // A previous build wrote ONLY app-external; that file exists but never shows in Downloads.
+        // App-external is the directory Jay actually opens
+        // (/sdcard/Android/data/com.alibaba.android.rimet/files/RimetMock/).
+        // It must be written on EVERY line. MediaStore/Download are additional copies;
+        // a successful insert must not suppress the file he is looking at.
+        val ext = appendAppExternal(context, row)
         val ms = if (Build.VERSION.SDK_INT >= 29) appendMediaStore(context, row) else false
         val file = if (!ms) appendFile(row) else false
-        val ext = if (!ms && !file) appendAppExternal(context, row) else false
-        val summary = when {
-            ms -> "mediastore -> ${relativePath()}${fileName()}"
-            file -> "download-file -> ${File(publicDir(), "$DIR_NAME/${fileName()}").absolutePath}"
-            ext -> "app-external -> ${appExternalTarget(context)}"
-            else -> "FAILED all sinks (mediastore=${mediaStoreError ?: "insert/open returned false"})"
+        val summary = buildString {
+            append(if (ext) "app-external -> ${appExternalTarget(context)}" else "app-external FAILED")
+            append(if (ms) "; mediastore -> ${relativePath()}${fileName()}" else "; mediastore FAILED (${mediaStoreError ?: "insert/open returned false"})")
+            if (!ms) append(if (file) "; download-file ok" else "; download-file FAILED")
         }
         if (summary != reportedSink) {
             reportedSink = summary
             runCatching { RimetMockModule.framework.log(Log.INFO, TAG, "log file: $summary") }
+            if (ext) File(File(context.getExternalFilesDir(null), DIR_NAME), fileName())
+                .appendText("log file: $summary\n")
         }
     }
 
