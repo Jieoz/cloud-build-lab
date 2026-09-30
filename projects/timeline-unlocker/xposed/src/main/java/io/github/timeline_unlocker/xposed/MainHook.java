@@ -268,7 +268,7 @@ public class MainHook extends XposedModule {
         armGate(context.getClassLoader(), maker, "maker");
         ClassLoader cl = context.getClassLoader();
         watchMembers(cl, "com.google.android.apps.gmm.mapsactivity.instant.TimelineWrapper");
-        java.util.List<String> refs = DexTypes.allInvokers(dex,
+        java.util.List<String> refs = invokersOf(apk,
                 "Lcom/google/android/apps/gmm/mapsactivity/instant/TimelineWrapper;", "<init>", 12);
         log("timeline gate refs: %d %s", refs.size(), refs);
         for (String descriptor : maker.params) {
@@ -426,6 +426,30 @@ public class MainHook extends XposedModule {
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    /**
+     * Methods that invoke the target, across every classes*.dex. A caller in a later dex
+     * is invisible to a scan of the dex that defines the type. Each row is prefixed with
+     * the dex file name. Capped, and each dex is decoded on its own.
+     */
+    private static java.util.List<String> invokersOf(String apk, String owner, String name, int cap) {
+        java.util.List<String> found = new java.util.ArrayList<>();
+        if (apk == null) return found;
+        try (ZipFile zip = new ZipFile(apk)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements() && found.size() < cap) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                String file = entry.getName();
+                if (!file.startsWith("classes") || !file.endsWith(".dex")) continue;
+                if (entry.getSize() <= 0 || entry.getSize() > 48L * 1024 * 1024) continue;
+                for (String row : DexTypes.allInvokers(readEntry(zip, entry), owner, name, cap - found.size())) {
+                    found.add(file + " " + row);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return found;
     }
 
     private static byte[] readEntry(ZipFile zip, java.util.zip.ZipEntry entry) throws java.io.IOException {
