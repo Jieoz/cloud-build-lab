@@ -56,8 +56,12 @@ public class MainHook extends XposedModule {
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
+            // 3.23: Maps itself reads us, matching the log54 build. The live-location
+            // rewrite stays off, so nothing stacks on Maps' own correction.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
+            hookTelephonyManager(cl);
+            hookSystemProperties(cl);
         } else {
             // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
             // are the working pair. Keep exactly that.
