@@ -50,7 +50,10 @@ public class MainHook extends XposedModule {
             return;
         }
         ClassLoader cl = param.getClassLoader();
-        log("loading package: %s first=%s process=%s", pkg, param.isFirstPackage(), processName());
+        String loading = String.format("loading package: %s first=%s process=%s",
+                pkg, param.isFirstPackage(), processName());
+        if (!DiagLog.isEnabled()) ModuleRuntime.frameworkLog(loading);
+        log("%s", loading);
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
@@ -112,23 +115,17 @@ public class MainHook extends XposedModule {
      * startup lines first. No reboot and no app restart.</p>
      */
     private void bindLog(ClassLoader cl, String pkg) {
+        // Instrumentation.callApplicationOnCreate runs for every Application, whether or not the
+        // app's own onCreate calls super. Hooking Application.onCreate missed GMS: its Application
+        // never reaches the base method, so the GMS process never bound the log (4.2-log90).
         try {
-            Method onCreate = Application.class.getDeclaredMethod("onCreate");
-            hook(onCreate).intercept(chain -> {
+            Method call = android.app.Instrumentation.class.getDeclaredMethod(
+                    "callApplicationOnCreate", Application.class);
+            hook(call).intercept(chain -> {
                 Object result = chain.proceed();
                 try {
-                    Object self = chain.getThisObject();
-                    if (self instanceof Application && !logBound) {
-                        Context context = (Application) self;
-                        if (pkg.equals(context.getPackageName())) {
-                            logBound = true;
-                            logContext = context;
-                            logPkg = pkg;
-                            applySwitch(ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
-                            switchListener = ModuleRuntime.watchSwitch(
-                                    DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
-                        }
-                    }
+                    Object app = chain.getArgs().isEmpty() ? null : chain.getArgs().get(0);
+                    if (app instanceof Application) onApplication((Application) app, pkg);
                 } catch (Throwable ignored) {
                 }
                 return result;
@@ -136,6 +133,18 @@ public class MainHook extends XposedModule {
         } catch (Throwable t) {
             log("bind log failed: %s", t);
         }
+    }
+
+    private void onApplication(Application app, String pkg) {
+        if (logBound || !pkg.equals(app.getPackageName())) return;
+        logBound = true;
+        logContext = app;
+        logPkg = pkg;
+        boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
+        ModuleRuntime.frameworkLog("[" + processName() + "] bound log=" + on);
+        applySwitch(on);
+        switchListener = ModuleRuntime.watchSwitch(
+                DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
     }
 
     /** Turn the log on/off in this process. Safe to call repeatedly from any thread. */
