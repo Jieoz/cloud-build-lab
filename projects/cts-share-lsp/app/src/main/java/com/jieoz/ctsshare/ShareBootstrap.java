@@ -991,36 +991,14 @@ public final class ShareBootstrap {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 
+    // Upstream wrote an always-on file under the host's private files dir. Here every diagnostic
+    // line goes through the module's log switch (DebugLog, default off, Download/CtsShare/).
     private static void debugLog(String message) {
-        Application application = debugApplication.get();
-        if (application != null) debugLog(application, message);
+        DebugLog.INSTANCE.line(message, false);
     }
 
     private static void debugLog(Context context, String message) {
-        synchronized (DEBUG_LOG_LOCK) {
-            try {
-                File current = new File(context.getFilesDir(), "cts-share-debug.log");
-                File previous = new File(context.getFilesDir(), "cts-share-debug.log.1");
-                if (current.length() >= DEBUG_LOG_FILE_BYTES) {
-                    if (previous.exists() && !previous.delete()) {
-                        Log.w(TAG, "Unable to delete old debug log");
-                    }
-                    if (!current.renameTo(previous)) {
-                        try (FileOutputStream truncate = new FileOutputStream(current, false)) {
-                            truncate.write(new byte[0]);
-                        }
-                    }
-                }
-                String timestamp = new SimpleDateFormat(
-                        "yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
-                String line = timestamp + " " + message.replace('\n', ' ') + "\n";
-                try (FileOutputStream output = new FileOutputStream(current, true)) {
-                    output.write(line.getBytes(StandardCharsets.UTF_8));
-                }
-            } catch (Throwable error) {
-                Log.e(TAG, "Unable to write debug log", error);
-            }
-        }
+        debugLog(message);
     }
 
     private static void rememberSourceTask(Activity activity) {

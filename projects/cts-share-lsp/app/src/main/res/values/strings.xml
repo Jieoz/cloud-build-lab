@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">圈选分享</string>
-    <string name="xposed_description">给 Google 圈选即搜恢复“分享”按钮，选区图片直接发到系统分享面板，不存相册。</string>
+    <string name="xposed_description">给 Google 圈选即搜恢复“分享”按钮，选区图片直接发到系统分享面板，不存相册。作用域勾选 Google。</string>
+
+    <string name="status_service_down">未连接到 LSPosed。请确认模块已启用，作用域勾选了 Google。</string>
+    <string name="status_no_host_running">LSPosed 已连接，Google 应用当前没在运行。打开一次圈选即搜后再回来看。</string>
+    <string name="status_hosts_hooked">已挂载：%1$s</string>
+    <string name="target_up_to_date">当前版本</string>
+    <string name="target_stale">旧版本，需强制停止 Google 应用</string>
+    <string name="target_reloading">正在重载</string>
+    <string name="target_failed">挂载失败</string>
+
+    <string name="enable_diag_log">诊断日志（写入 Download/CtsShare/，开关即时生效，不用重启 Google）</string>
+    <string name="log_on_toast">诊断日志已开启，Google 正在运行的话立刻开始记录</string>
+    <string name="log_off_toast">诊断日志已关闭</string>
+    <string name="publish_failed">保存失败（%1$s）。请确认 LSPosed 管理器在运行、本模块已启用；刚打开本应用的话等几秒再试。</string>
+    <string name="publish_failed_unknown">XposedService 未绑定</string>
+    <string name="publish_waiting">正在连接 LSPosed 服务…</string>
+    <string name="view_log">查看日志文件</string>
+    <string name="debug_log_hint">日志在 Download/CtsShare/，按日期一个文件</string>
+    <string name="hint">用法：启用模块后强制停止 Google 应用，长按导航栏打开圈选即搜，圈出区域后点“分享”。
+分享图片只写入 Google 应用私有缓存，十分钟后自动删除，不进相册。
+
+出问题时：打开上面的诊断日志，复现一次（圈选 → 点分享），再点“查看日志文件”，把 Download/CtsShare/ 里当天的文件发我。</string>
 </resources>

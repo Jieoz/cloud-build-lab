@@ -25,16 +25,16 @@ LSPosed 模块：给 Google 圈选即搜（Circle to Search）恢复选区的“
 
 分享图片写入 Google 应用私有缓存 `cache/cts-share`，十分钟后或下次 Google 进程启动时删除。
 
-## 诊断
-
-`adb logcat -s CTSShareLSP`；详细日志在
-`/data/data/com.google.android.googlequicksearchbox/files/cts-share-debug.log`（root 可读，≤64 KB，
-不含图片和页面文字）。
-
-Google 应用更新可能改动混淆的内部 View，失效时先跟进上游再同步 `ShareBootstrap.java`。
 
 ## 构建
 
 `./gradlew :app:assembleDebug`，签名用固定 key（CI secrets `XVC_KEYSTORE_*`，证书 SHA-256 `1815c41d…8d2d`）。
 
 License: GPL-3.0-only（继承上游）。
+
+## 诊断日志
+
+模块 App 里有“诊断日志”开关，默认关，即时生效（remote prefs + 监听，和 yt-translate-probe 同一套）。
+开启后 Google `:googleapp` 进程把日志写到 `Download/CtsShare/ctsshare-YYYYMMDD-*.txt`，关闭时不写任何文件。
+上游原本始终写 Google 私有目录 `files/cts-share-debug.log`，已改为走此开关。
+

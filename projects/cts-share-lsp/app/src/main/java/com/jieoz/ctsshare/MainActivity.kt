@@ -1,34 +1,88 @@
 package com.jieoz.ctsshare
 
-import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
-import android.util.TypedValue
+import android.widget.Button
+import android.widget.CheckBox
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import io.github.libxposed.service.HookedTarget
 
-/** Status page only. The module has no settings. */
-class MainActivity : Activity() {
+/**
+ * One switch + log shortcut, trimmed from rimet-mock's MainActivity. The status line reports what
+ * LSPosed says about the Google :googleapp process (XposedService.getRunningTargets).
+ */
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var pref: ModulePrefs.PublishingPrefs
+    private lateinit var status: TextView
+    private lateinit var publishStatus: TextView
+    private lateinit var logSwitch: CheckBox
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pad = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics
-        ).toInt()
-        val status = if (isModuleActive()) "模块状态：已激活" else "模块状态：未激活（请在 LSPosed 中启用）"
-        setContentView(TextView(this).apply {
-            setPadding(pad, pad * 2, pad, pad)
-            textSize = 16f
-            text = buildString {
-                appendLine(status)
-                appendLine()
-                appendLine("作用域：Google（com.google.android.googlequicksearchbox）")
-                appendLine()
-                appendLine("用法：启用后强制停止 Google 应用，长按导航栏打开圈选即搜，圈出区域后点“分享”。")
-                appendLine()
-                append("图片只写入 Google 应用私有缓存，十分钟后自动删除，不进相册。")
-            }
-        })
+        setContentView(R.layout.activity_main)
+        pref = ModulePrefs.open(this)
+        ModulePrefs.onServiceChanged = { runOnUiThread { refreshConnection() } }
+        status = findViewById(R.id.status)
+        publishStatus = findViewById(R.id.publish_status)
+        logSwitch = findViewById(R.id.log_switch)
+        findViewById<Button>(R.id.export_log).setOnClickListener { openDownloads() }
     }
 
-    /** Replaced with `true` by the module hook when LSPosed loads us into this app. */
-    fun isModuleActive(): Boolean = false
+    override fun onResume() {
+        super.onResume()
+        refreshConnection()
+        logSwitch.setOnCheckedChangeListener(null)
+        logSwitch.isChecked = pref.getBoolean(Constants.K_LOG, false)
+        logSwitch.setOnCheckedChangeListener { _, checked -> persistLogSwitch(checked) }
+    }
+
+    override fun onDestroy() {
+        ModulePrefs.onServiceChanged = null
+        super.onDestroy()
+    }
+
+    private fun refreshConnection() {
+        val targets = ModulePrefs.runningTargets()
+        val hosts = targets.filterKeys { !it.startsWith(Constants.SELF_PACKAGE) }
+        status.text = when {
+            hosts.isNotEmpty() -> getString(
+                R.string.status_hosts_hooked,
+                hosts.entries.joinToString("、") { (name, t) -> "$name（${stateLabel(t)}）" }
+            )
+            ModulePrefs.isBound -> getString(R.string.status_no_host_running)
+            else -> getString(R.string.status_service_down)
+        }
+        publishStatus.text = if (ModulePrefs.isBound) "" else getString(R.string.publish_waiting)
+    }
+
+    private fun stateLabel(t: HookedTarget): String = when (t.state) {
+        HookedTarget.State.UP_TO_DATE -> getString(R.string.target_up_to_date)
+        HookedTarget.State.STALE -> getString(R.string.target_stale)
+        HookedTarget.State.RELOADING -> getString(R.string.target_reloading)
+        HookedTarget.State.FAILED -> getString(R.string.target_failed)
+    }
+
+    private fun openDownloads() {
+        Toast.makeText(this, R.string.debug_log_hint, Toast.LENGTH_LONG).show()
+        runCatching { startActivity(Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)) }
+    }
+
+    private fun persistLogSwitch(checked: Boolean) {
+        val published = pref.edit().run {
+            putBoolean(Constants.K_LOG, checked)
+            commit()
+        }
+        if (published) {
+            publishStatus.text = ""
+            Toast.makeText(this, if (checked) R.string.log_on_toast else R.string.log_off_toast, Toast.LENGTH_SHORT).show()
+        } else {
+            publishStatus.text = getString(
+                R.string.publish_failed,
+                ModulePrefs.lastPublishError ?: getString(R.string.publish_failed_unknown)
+            )
+        }
+    }
 }
