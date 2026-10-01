@@ -186,11 +186,30 @@ public class MainHook extends XposedModule {
      * always kill itself, so this needs no root: Play services processes are brought back by the
      * system, and the module app reopens Maps. Short delay so the log line reaches disk.
      */
+    /** Name and pid of every running process with this UID; hooked or not. */
+    private static String uidProcesses() {
+        StringBuilder out = new StringBuilder();
+        try {
+            Application app = currentApplication();
+            if (app == null) return "?";
+            android.app.ActivityManager am = app.getSystemService(android.app.ActivityManager.class);
+            int uid = android.os.Process.myUid();
+            for (android.app.ActivityManager.RunningAppProcessInfo p : am.getRunningAppProcesses()) {
+                if (p.uid != uid) continue;
+                if (out.length() > 0) out.append(", ");
+                out.append(p.processName).append('(').append(p.pid).append(')');
+            }
+        } catch (Throwable t) {
+            return "error " + t;
+        }
+        return out.toString();
+    }
+
     private void restartSelf() {
         int me = android.os.Process.myPid();
         java.util.List<Integer> siblings = siblingPids(me);
         String line = "reload requested: restarting " + processName() + " pid=" + me
-                + " siblings=" + siblings;
+                + " siblings=" + siblings + " uid processes: " + uidProcesses();
         ModuleRuntime.frameworkLog(line);
         log("%s", line);
         Thread t = new Thread(() -> {
@@ -231,6 +250,9 @@ public class MainHook extends XposedModule {
         DiagLog.bind(context, on, processName());
         if (!on) return;
         DiagLog.line(header(context));
+        if (PKG_GMS.equals(processName())) {
+            DiagLog.line("uid processes: " + uidProcesses());
+        }
         for (String message : drainEarly()) DiagLog.line(message);
         if (PKG_MAPS.equals(logPkg) && !mapsWatchArmed) {
             mapsWatchArmed = true;
@@ -380,10 +402,35 @@ public class MainHook extends XposedModule {
             log("TelephonyManager not found: %s", t);
             return;
         }
-        // log33 pair: the two country-iso reads plus the system properties. Operator
-        // spoofs (log49+) never produced the entry; do not re-add them silently.
+        // GMS/GSF read a whole US subscription: country, operator and network. Maps is never
+        // touched (it keeps reading cn and keeps its own GCJ-02 correction for the live dot), so
+        // none of this reaches alignment. 4.8 logs showed GMS reading iso=us but operator 46002
+        // and carrier id 1435 (China Mobile): a half-US identity.
         spoofString(tm, "getSimCountryIso", FAKE_ISO);
         spoofString(tm, "getSimCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIso", FAKE_ISO);
+        spoofString(tm, "getNetworkCountryIsoForPhone", FAKE_ISO);
+        spoofString(tm, "getSimOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumeric", FAKE_MCC_MNC);
+        spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
+        spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
+        hookSubscriptionInfo(cl);
+    }
+
+    private void hookSubscriptionInfo(ClassLoader cl) {
+        Class<?> si;
+        try {
+            si = cl.loadClass("android.telephony.SubscriptionInfo");
+        } catch (Throwable t) {
+            log("SubscriptionInfo not found: %s", t);
+            return;
+        }
+        spoofString(si, "getCountryIso", FAKE_ISO);
+        hookAllReturning(si, "getMcc", 310);
+        hookAllReturning(si, "getMnc", 30);
+        spoofString(si, "getMccString", "310");
+        spoofString(si, "getMncString", "030");
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {

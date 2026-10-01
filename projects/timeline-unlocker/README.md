@@ -23,9 +23,12 @@ The module only loads in:
 What each process gets:
 
 - `com.google.android.gms` / `com.google.android.gsf`:
-  `TelephonyManager.getSimCountryIso{,ForPhone}` &rarr; `us`, and
+  a whole US subscription: `TelephonyManager.get{Sim,Network}CountryIso{,ForPhone}`
+  &rarr; `us`, `get{Sim,Network}Operator{,Numeric,ForPhone}` &rarr; `310030`,
+  `SubscriptionInfo` country/MCC/MNC &rarr; `us`/`310`/`030`, and
   `SystemProperties.get(...)` for `gsm.(sim.)?operator.(numeric|iso-country)`
-  &rarr; `310030` / `us`. This is what makes the account eligible for Timeline.
+  &rarr; `310030` / `us`. (Up to 4.8 only the SIM country was spoofed; GMS then
+  read `us` next to China Mobile's `46002`.)
 - `com.google.android.apps.maps`: **no telephony spoof.** Maps keeps reading the
   real SIM, so it keeps its own WGS-84 &rarr; GCJ-02 correction for the live
   location dot. The module only shifts Timeline history points (see below).
