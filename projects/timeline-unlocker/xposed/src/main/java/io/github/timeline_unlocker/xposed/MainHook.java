@@ -36,6 +36,8 @@ public class MainHook extends XposedModule {
 
     private static final String FAKE_MCC_MNC = "310030";
     private static final String FAKE_ISO = "us";
+    /** Android carrier id of AT&T, the owner of 310030 (China Mobile is 1435). */
+    private static final int FAKE_CARRIER_ID = 1187;
 
     private final java.util.List<String> early = new java.util.ArrayList<>();
 
@@ -308,9 +310,55 @@ public class MainHook extends XposedModule {
         }
     }
 
+    private static final long[] SCAN_DELAYS_MS = {2_000, 8_000, 20_000};
+
+    /**
+     * After each Maps resume, look for Timeline text on screen. This turns "is the entry there"
+     * and "did the deep link land on Timeline" into log lines instead of a verbal report, without
+     * depending on obfuscated class names.
+     */
+    private void scheduleEntryScan(android.app.Activity activity) {
+        android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        java.lang.ref.WeakReference<android.app.Activity> ref = new java.lang.ref.WeakReference<>(activity);
+        for (long delay : SCAN_DELAYS_MS) {
+            h.postDelayed(() -> {
+                android.app.Activity a = ref.get();
+                if (a == null || a.isFinishing() || !DiagLog.isEnabled()) return;
+                try {
+                    android.view.View root = a.getWindow().getDecorView();
+                    java.util.List<String> texts = new java.util.ArrayList<>();
+                    int[] views = {0};
+                    collectTexts(root, texts, views);
+                    EntryScan.Result r = EntryScan.evaluate(texts);
+                    log("entry scan %s t=%ds views=%d %s", a.getClass().getSimpleName(),
+                            delay / 1000, views[0], r.line());
+                } catch (Throwable t) {
+                    log("entry scan failed: %s", t.getClass().getSimpleName());
+                }
+            }, delay);
+        }
+    }
+
+    private static void collectTexts(android.view.View v, java.util.List<String> out, int[] count) {
+        if (v == null || count[0] > 5000) return;
+        count[0]++;
+        if (v.getVisibility() != android.view.View.VISIBLE) return;
+        CharSequence desc = v.getContentDescription();
+        if (desc != null && desc.length() > 0) out.add(desc.toString());
+        if (v instanceof android.widget.TextView) {
+            CharSequence text = ((android.widget.TextView) v).getText();
+            if (text != null && text.length() > 0) out.add(text.toString());
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) collectTexts(g.getChildAt(i), out, count);
+        }
+    }
+
     private void noteActivity(String kind, Object self, Object explicit) {
         try {
             if (!(self instanceof android.app.Activity)) return;
+            if ("resume".equals(kind)) scheduleEntryScan((android.app.Activity) self);
             android.content.Intent intent = explicit instanceof android.content.Intent
                     ? (android.content.Intent) explicit : ((android.app.Activity) self).getIntent();
             log("activity %s %s %s", kind, self.getClass().getName(), ActivityLine.describe(
@@ -415,6 +463,7 @@ public class MainHook extends XposedModule {
         spoofString(tm, "getSimOperatorNumericForPhone", FAKE_MCC_MNC);
         spoofString(tm, "getNetworkOperator", FAKE_MCC_MNC);
         spoofString(tm, "getNetworkOperatorForPhone", FAKE_MCC_MNC);
+        hookAllReturning(tm, "getSimCarrierId", FAKE_CARRIER_ID);
         hookSubscriptionInfo(cl);
     }
 
@@ -431,6 +480,7 @@ public class MainHook extends XposedModule {
         hookAllReturning(si, "getMnc", 30);
         spoofString(si, "getMccString", "310");
         spoofString(si, "getMncString", "030");
+        hookAllReturning(si, "getCarrierId", FAKE_CARRIER_ID);
     }
 
     private void spoofString(Class<?> clazz, String name, String value) {

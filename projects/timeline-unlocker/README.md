@@ -25,7 +25,8 @@ What each process gets:
 - `com.google.android.gms` / `com.google.android.gsf`:
   a whole US subscription: `TelephonyManager.get{Sim,Network}CountryIso{,ForPhone}`
   &rarr; `us`, `get{Sim,Network}Operator{,Numeric,ForPhone}` &rarr; `310030`,
-  `SubscriptionInfo` country/MCC/MNC &rarr; `us`/`310`/`030`, and
+  `SubscriptionInfo` country/MCC/MNC &rarr; `us`/`310`/`030`, carrier id &rarr;
+  AT&T (`1187`), and
   `SystemProperties.get(...)` for `gsm.(sim.)?operator.(numeric|iso-country)`
   &rarr; `310030` / `us`. (Up to 4.8 only the SIM country was spoofed; GMS then
   read `us` next to China Mobile's `46002`.)
