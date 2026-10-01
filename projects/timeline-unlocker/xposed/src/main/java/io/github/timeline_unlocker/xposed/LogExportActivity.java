@@ -31,6 +31,7 @@ public class LogExportActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private Switch toggle;
     private TextView body;
+    private TextView status;
     private int retries;
 
     @Override
@@ -69,6 +70,9 @@ public class LogExportActivity extends Activity {
         restart.setPadding(0, 0, 0, dp(20));
         restart.setOnClickListener(v -> restartTargets());
         root.addView(restart);
+        status = text("", 14, "#E0E0E0");
+        status.setPadding(0, 0, 0, dp(20));
+        root.addView(status);
 
         TextView open = text("打开系统下载", 16, "#8AB4F8");
         open.setOnClickListener(v -> openDownloads());
@@ -88,7 +92,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，点一次「重新加载地图和 Play 服务」让伪装生效（需要 root），也不用重启手机。"
+                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，点一次「重新加载地图和 Play 服务」让伪装生效，不需要 root，也不用重启手机。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (!ready && retries < 10) {
             retries++;
@@ -137,54 +141,65 @@ public class LogExportActivity extends Activity {
     }
 
     private static final String MAPS = "com.google.android.apps.maps";
-    static final String[] TARGETS = {
-            MAPS, "com.google.android.gms", "com.google.android.gsf",
-    };
-
-    /** "am force-stop a; am force-stop b; ..." for the three hooked packages. */
-    static String restartCommand() {
-        StringBuilder cmd = new StringBuilder();
-        for (String pkg : TARGETS) {
-            if (cmd.length() > 0) cmd.append("; ");
-            cmd.append("am force-stop ").append(pkg);
-        }
-        return cmd.toString();
-    }
-
     /**
      * Hooks install when a process starts, so after installing or updating the module the three
-     * Google packages must start again. Force-stopping them through root does that in a second;
-     * Play services comes back on its own and Maps is reopened. Same approach as the pixelify
-     * module's force-stop button. No root: open Maps' app info so it can be stopped by hand.
+     * Google packages must start again. No root: every hooked process listens for a reload
+     * request pushed through LSPosed remote preferences and restarts itself. Then the framework's
+     * list of hooked processes shows which ones now run this build.
      */
     private void restartTargets() {
+        if (!ModuleRuntime.requestReload(DiagLog.PREFS_NAME, DiagLog.KEY_RELOAD)) {
+            Toast.makeText(this, "框架未连接，请确认模块已在 LSPosed 中激活。", Toast.LENGTH_LONG).show();
+            return;
+        }
         Toast.makeText(this, "正在重新加载…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            boolean ok;
-            try {
-                Process su = new ProcessBuilder("su", "-c", restartCommand())
-                        .redirectErrorStream(true).start();
-                ok = su.waitFor() == 0;
-            } catch (Throwable t) {
-                ok = false;
-            }
-            boolean done = ok;
-            main.post(() -> {
-                if (done) {
-                    Toast.makeText(this, "已重新加载，正在打开地图。", Toast.LENGTH_SHORT).show();
-                    main.postDelayed(this::openMaps, 1500);
-                } else {
-                    Toast.makeText(this, "没有 root 权限，请在应用信息里强行停止地图和 Play 服务。",
-                            Toast.LENGTH_LONG).show();
-                    try {
-                        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                android.net.Uri.fromParts("package", MAPS, null)));
-                    } catch (Throwable ignored) {
-                    }
-                }
-            });
-        }, "timeline-unlocker-restart").start();
+        main.postDelayed(() -> {
+            openMaps();
+            main.postDelayed(this::showTargets, 2500);
+        }, 1500);
     }
+
+    /** Which hooked processes run this build and which still run an older one. */
+    private void showTargets() {
+        long current = currentVersionCode();
+        java.util.List<String> stale = new java.util.ArrayList<>();
+        int fresh = 0;
+        java.util.List<ModuleRuntime.Target> targets = ModuleRuntime.runningTargets();
+        if (targets.isEmpty()) {
+            status.setText("已发出重新加载。框架没有返回进程列表，以日志首行的版本号为准。");
+            return;
+        }
+        for (ModuleRuntime.Target t : targets) {
+            if (t.loadedVersion == current) fresh++;
+            else stale.add(staleLine(t.process, t.loadedVersion));
+        }
+        if (stale.isEmpty()) {
+            status.setText("重新加载完成：" + fresh + " 个进程已在用当前版本。");
+            return;
+        }
+        status.setText("还有进程在用旧版本（多半是刚装的这一版，它们还不认识重新加载）：\n"
+                + String.join("\n", stale)
+                + "\n\n只需这一次：在 Play 服务的应用信息里点「强行停止」，再点一次重新加载。以后就不用了。");
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.fromParts("package", GMS, null)));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static String staleLine(String process, long loadedVersion) {
+        return "· " + DiagLog.shortProcess(process) + "（版本 " + loadedVersion + "）";
+    }
+
+    private long currentVersionCode() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static final String GMS = "com.google.android.gms";
 
     private void openMaps() {
         try {

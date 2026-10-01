@@ -48,6 +48,8 @@ public final class DiagLog {
     public static final String PREFS_NAME = "switch";
     /** Boolean key inside {@link #PREFS_NAME}; absent/false means the log is off. */
     public static final String KEY_ON = "on";
+    /** Long key inside {@link #PREFS_NAME}: a new value asks every hooked process to restart. */
+    public static final String KEY_RELOAD = "reload";
 
     private static final String MIME = "text/plain";
     private static final int MAX_QUEUED = 400;

@@ -55,7 +55,17 @@ public class MainHook extends XposedModule {
         if (!DiagLog.isEnabled()) ModuleRuntime.frameworkLog(loading);
         log("%s", loading);
 
+        if (reloadListener == null) {
+            // Registered here, not on Application create: it needs no Context, so it works in
+            // every hooked process even if the log never binds there.
+            reloadListener = ModuleRuntime.watchKey(
+                    DiagLog.PREFS_NAME, DiagLog.KEY_RELOAD, prefs -> restartSelf());
+        }
         bindLog(cl, pkg);
+        // The Application may already exist when the package is reported (GMS side processes);
+        // then the create hook never fires, so bind now.
+        Application current = currentApplication();
+        if (current != null) onApplication(current, pkg);
         if (PKG_MAPS.equals(pkg)) {
             // log33/log60 pair: Maps keeps reading its real SIM, so it keeps its own GCJ-02
             // correction for the live dot. The module only shifts history points.
@@ -88,6 +98,16 @@ public class MainHook extends XposedModule {
             java.util.List<String> copy = new java.util.ArrayList<>(early);
             early.clear();
             return copy;
+        }
+    }
+
+    private static Application currentApplication() {
+        try {
+            Object app = Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication").invoke(null);
+            return app instanceof Application ? (Application) app : null;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -135,7 +155,7 @@ public class MainHook extends XposedModule {
         }
     }
 
-    private void onApplication(Application app, String pkg) {
+    private synchronized void onApplication(Application app, String pkg) {
         if (logBound || !pkg.equals(app.getPackageName())) return;
         logBound = true;
         logContext = app;
@@ -145,6 +165,27 @@ public class MainHook extends XposedModule {
         applySwitch(on);
         switchListener = ModuleRuntime.watchSwitch(
                 DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
+    }
+
+    /**
+     * Restart this process so the current module build hooks it from the start. A process may
+     * always kill itself, so this needs no root: Play services processes are brought back by the
+     * system, and the module app reopens Maps. Short delay so the log line reaches disk.
+     */
+    private void restartSelf() {
+        String line = "reload requested: restarting " + processName() + " pid="
+                + android.os.Process.myPid();
+        ModuleRuntime.frameworkLog(line);
+        log("%s", line);
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(400);
+            } catch (InterruptedException ignored) {
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }, "timeline-unlocker-reload");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** Turn the log on/off in this process. Safe to call repeatedly from any thread. */
@@ -167,6 +208,7 @@ public class MainHook extends XposedModule {
     private volatile boolean mapsWatchArmed;
     /** Strong reference: some frameworks keep listeners weakly. */
     private Object switchListener;
+    private volatile Object reloadListener;
     private volatile boolean logBound;
 
     private static String header(Context context) {

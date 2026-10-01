@@ -96,6 +96,19 @@ public final class ModuleRuntime {
      * strongly reachable. Returns null when the framework is not bound.
      */
     static Object watchSwitch(String prefsName, String key, SwitchListener listener) {
+        return watchKey(prefsName, key, p -> listener.onSwitch(p.getBoolean(key, false)));
+    }
+
+    /** Callback for {@link #watchKey}. */
+    interface KeyListener {
+        void onChange(SharedPreferences prefs);
+    }
+
+    /**
+     * Run {@code listener} whenever the module app edits {@code key}. Only edits fire it, never
+     * the value already stored when the process started. Returns null when not bound.
+     */
+    static Object watchKey(String prefsName, String key, KeyListener listener) {
         try {
             XposedInterface base = framework;
             if (base == null) return null;
@@ -104,7 +117,7 @@ public final class ModuleRuntime {
                 // changed == null is the "cleared" signal on newer Android.
                 if (changed == null || key.equals(changed)) {
                     try {
-                        listener.onSwitch(p.getBoolean(key, false));
+                        listener.onChange(p);
                     } catch (Throwable ignored) {
                     }
                 }
@@ -157,6 +170,46 @@ public final class ModuleRuntime {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Ask every hooked process to restart itself: writes a fresh timestamp, which LSPosed pushes
+     * to every process listening on {@link DiagLog#KEY_RELOAD}. No root involved.
+     */
+    public static boolean requestReload(String prefsName, String key) {
+        try {
+            XposedService bound = service;
+            if (bound == null) return false;
+            SharedPreferences prefs = bound.getRemotePreferences(prefsName);
+            return prefs.edit().putLong(key, System.currentTimeMillis()).commit();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** One hooked process as the framework sees it. */
+    public static final class Target {
+        public final String process;
+        public final long loadedVersion;
+
+        Target(String process, long loadedVersion) {
+            this.process = process;
+            this.loadedVersion = loadedVersion;
+        }
+    }
+
+    /** Hooked processes running right now, with the module version each one has loaded. */
+    public static java.util.List<Target> runningTargets() {
+        java.util.List<Target> out = new java.util.ArrayList<>();
+        try {
+            XposedService bound = service;
+            if (bound == null) return out;
+            for (io.github.libxposed.service.HookedTarget t : bound.getRunningTargets()) {
+                out.add(new Target(t.getProcessName(), t.getLoadedVersionCode()));
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
     }
 
     /**

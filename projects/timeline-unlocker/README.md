@@ -76,9 +76,12 @@ by default and never writes its passwords to the repository.
 1. Install the APK with `adb install` (or any installer).
 2. In LSPosed manager, enable **Timeline Unlocker (Xposed)**.
 3. Confirm the scope includes the three Google packages above.
-4. Open the module app and tap **重新加载地图和 Play 服务** (root: force-stops
-   Maps, GMS and GSF so they start again with the hooks, then reopens Maps).
-   No reboot needed. Without root, force-stop the three apps in app info.
+4. Open the module app and tap **重新加载地图和 Play 服务**. No root and no
+   reboot: every hooked process listens for the request (pushed by LSPosed) and
+   restarts itself; the system brings Play services back and the app reopens
+   Maps. It then lists any process still running an older build. Only the first
+   install of 4.4 needs one manual force-stop of Play services, because older
+   builds do not listen yet.
 5. If the in-app Timeline entry is hidden that day (the server decides it),
    open the module app and tap **在地图中打开时间轴**. It opens Timeline through
    a Maps deep link, so it does not depend on any one menu entry.
@@ -154,7 +157,7 @@ compensation would double-offset those locations.
    `com.google.android.gms`, `com.google.android.gsf`, and
    `com.google.android.apps.maps`.
 2. After enabling or updating the module, tap **重新加载地图和 Play 服务** in
-   the module app (or force-stop all three packages) — hooks install at
+   the module app (no root needed) — hooks install at
    process start. A reboot is not needed.
 3. Check hook installation in LSPosed logs or via:
 
