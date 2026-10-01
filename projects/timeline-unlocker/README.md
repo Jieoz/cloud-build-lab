@@ -76,7 +76,9 @@ by default and never writes its passwords to the repository.
 1. Install the APK with `adb install` (or any installer).
 2. In LSPosed manager, enable **Timeline Unlocker (Xposed)**.
 3. Confirm the scope includes the three Google packages above.
-4. Force-stop GMS, Maps, and GSF (or reboot). Open Maps &rarr; Timeline.
+4. Open the module app and tap **重新加载地图和 Play 服务** (root: force-stops
+   Maps, GMS and GSF so they start again with the hooks, then reopens Maps).
+   No reboot needed. Without root, force-stop the three apps in app info.
 5. If the in-app Timeline entry is hidden that day (the server decides it),
    open the module app and tap **在地图中打开时间轴**. It opens Timeline through
    a Maps deep link, so it does not depend on any one menu entry.
@@ -151,8 +153,9 @@ compensation would double-offset those locations.
 1. Confirm the module is enabled in LSPosed and the scope includes
    `com.google.android.gms`, `com.google.android.gsf`, and
    `com.google.android.apps.maps`.
-2. Force-stop all three packages (or reboot) after enabling — hooks install
-   at process start.
+2. After enabling or updating the module, tap **重新加载地图和 Play 服务** in
+   the module app (or force-stop all three packages) — hooks install at
+   process start. A reboot is not needed.
 3. Check hook installation in LSPosed logs or via:
 
    ```bash
@@ -163,8 +166,9 @@ compensation would double-offset those locations.
    `hooked N overload(s) of TelephonyManager.getSimCountryIso -> us`.
    Failures are logged too; a `not found` message usually means the target
    app version changed — open an issue with the log output.
-4. Diagnostic log (off by default). Turn it on in the module app, reboot, then
-   reproduce. Every hooked process writes its own file:
+4. Diagnostic log (off by default). Turn it on in the module app; it takes
+   effect at once in every running hooked process (LSPosed pushes the switch),
+   and lines buffered since process start are written first. Then reproduce. Every hooked process writes its own file:
 
    ```text
    Download/TimelineUnlocker/timeline-yyyyMMdd-maps.txt

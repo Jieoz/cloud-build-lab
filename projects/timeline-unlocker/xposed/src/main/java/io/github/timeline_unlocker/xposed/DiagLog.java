@@ -24,9 +24,10 @@ import java.util.Locale;
 /**
  * Diagnostic log, off by default.
  *
- * <p>The switch value is read once — outside this class, from libxposed remote preferences
- * ({@link ModuleRuntime#switchOn}) — when each hooked process starts, and handed to {@link #bind}.
- * There is no polling, no listener, no broadcast receiver, and no host-file read here.</p>
+ * <p>The switch lives in libxposed remote preferences, outside this class. Each hooked process
+ * reads it when it starts and follows later edits through the framework's change push
+ * ({@link ModuleRuntime#watchSwitch}), calling {@link #bind} again. No polling, no broadcast
+ * receiver, and no host-file read here.</p>
  *
  * <p><b>While OFF</b> (the default): {@link #line} does a single volatile read and returns. The
  * writer thread is never started, MediaStore is never queried, nothing is queued, nothing touches

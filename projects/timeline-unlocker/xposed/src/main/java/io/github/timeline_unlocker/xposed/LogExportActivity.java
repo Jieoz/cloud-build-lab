@@ -17,8 +17,8 @@ import android.widget.Toast;
 
 /**
  * Settings only. The switch is stored in libxposed remote preferences through the Xposed
- * <b>service</b> (writable in this module app process); the hooked Maps process reads it once at
- * startup through the read-only hook interface (see {@link DiagLog} / {@link ModuleRuntime}).
+ * <b>service</b> (writable in this module app process); every hooked process follows it live
+ * through the read-only hook interface (see {@link DiagLog} / {@link ModuleRuntime}).
  * No export button, no file merging, no host private-directory reads.
  *
  * <p>The service binds asynchronously a moment after the process starts (only when the module is
@@ -65,6 +65,11 @@ public class LogExportActivity extends Activity {
         timeline.setOnClickListener(v -> openTimeline());
         root.addView(timeline);
 
+        TextView restart = text("重新加载地图和 Play 服务", 16, "#8AB4F8");
+        restart.setPadding(0, 0, 0, dp(20));
+        restart.setOnClickListener(v -> restartTargets());
+        root.addView(restart);
+
         TextView open = text("打开系统下载", 16, "#8AB4F8");
         open.setOnClickListener(v -> openDownloads());
         root.addView(open);
@@ -83,7 +88,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。打开后请重启手机（地图和 Play 服务都要重新启动），复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。"
+                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，点一次「重新加载地图和 Play 服务」让伪装生效（需要 root），也不用重启手机。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (!ready && retries < 10) {
             retries++;
@@ -107,8 +112,8 @@ public class LogExportActivity extends Activity {
         }
         Toast.makeText(this,
                 checked
-                        ? "已打开。请重启手机，文件出现在系统「下载/TimelineUnlocker」。"
-                        : "已关闭。地图下次重启后停止写。",
+                        ? "已打开，立即生效。文件在系统「下载/TimelineUnlocker」。"
+                        : "已关闭，立即停止写。",
                 Toast.LENGTH_LONG).show();
     }
 
@@ -132,6 +137,62 @@ public class LogExportActivity extends Activity {
     }
 
     private static final String MAPS = "com.google.android.apps.maps";
+    static final String[] TARGETS = {
+            MAPS, "com.google.android.gms", "com.google.android.gsf",
+    };
+
+    /** "am force-stop a; am force-stop b; ..." for the three hooked packages. */
+    static String restartCommand() {
+        StringBuilder cmd = new StringBuilder();
+        for (String pkg : TARGETS) {
+            if (cmd.length() > 0) cmd.append("; ");
+            cmd.append("am force-stop ").append(pkg);
+        }
+        return cmd.toString();
+    }
+
+    /**
+     * Hooks install when a process starts, so after installing or updating the module the three
+     * Google packages must start again. Force-stopping them through root does that in a second;
+     * Play services comes back on its own and Maps is reopened. Same approach as the pixelify
+     * module's force-stop button. No root: open Maps' app info so it can be stopped by hand.
+     */
+    private void restartTargets() {
+        Toast.makeText(this, "正在重新加载…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            boolean ok;
+            try {
+                Process su = new ProcessBuilder("su", "-c", restartCommand())
+                        .redirectErrorStream(true).start();
+                ok = su.waitFor() == 0;
+            } catch (Throwable t) {
+                ok = false;
+            }
+            boolean done = ok;
+            main.post(() -> {
+                if (done) {
+                    Toast.makeText(this, "已重新加载，正在打开地图。", Toast.LENGTH_SHORT).show();
+                    main.postDelayed(this::openMaps, 1500);
+                } else {
+                    Toast.makeText(this, "没有 root 权限，请在应用信息里强行停止地图和 Play 服务。",
+                            Toast.LENGTH_LONG).show();
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.fromParts("package", MAPS, null)));
+                    } catch (Throwable ignored) {
+                    }
+                }
+            });
+        }, "timeline-unlocker-restart").start();
+    }
+
+    private void openMaps() {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(MAPS);
+            if (launch != null) startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Throwable ignored) {
+        }
+    }
     static final String[] TIMELINE_LINKS = {
             "https://www.google.com/maps/timeline",
             "https://timeline.google.com/maps/timeline",

@@ -22,9 +22,10 @@ import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
  *       the mainland road / satellite layers line up, and bind the diagnostic log.</li>
  * </ul>
  *
- * <p>The diagnostic log is off by default. Its switch is a plain private SharedPreference written
- * by the module UI ({@link LogExportActivity}) and read <b>once</b>, read-only, by every hooked process
- * through {@link XposedInterface#getRemotePreferences}. No broadcast, no polling, no wake-ups.</p>
+ * <p>The diagnostic log is off by default. Its switch lives in libxposed remote preferences,
+ * written by the module UI ({@link LogExportActivity}) and read by every hooked process through
+ * {@link XposedInterface#getRemotePreferences}. The framework pushes changes, so the switch takes
+ * effect live. No broadcast, no polling, no wake-ups.</p>
  */
 public class MainHook extends XposedModule {
 
@@ -68,11 +69,15 @@ public class MainHook extends XposedModule {
 
     private void log(String fmt, Object... args) {
         String message = String.format(fmt, args);
+        if (DiagLog.isEnabled()) {
+            DiagLog.line(message);
+            return;
+        }
+        // Log off: keep the newest lines so switching it on later still shows startup.
         synchronized (early) {
             if (early.size() >= 200) early.remove(0);
             early.add(message);
         }
-        DiagLog.line(message);
     }
 
     private java.util.List<String> drainEarly() {
@@ -101,6 +106,10 @@ public class MainHook extends XposedModule {
      * location history run in GMS side processes (gms.persistent, gms.unstable, ...). The bind
      * only fires for the process's own Application, so a package loaded into another app's
      * process (GMS code inside Maps) keeps writing under the host process tag.
+     *
+     * <p>The switch is live: LSPosed pushes remote-preference changes to every hooked process,
+     * so turning the log on in the module app starts writing right away, with the buffered
+     * startup lines first. No reboot and no app restart.</p>
      */
     private void bindLog(ClassLoader cl, String pkg) {
         try {
@@ -113,18 +122,11 @@ public class MainHook extends XposedModule {
                         Context context = (Application) self;
                         if (pkg.equals(context.getPackageName())) {
                             logBound = true;
-                            boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
-                            DiagLog.bind(context, on, processName());
-                            if (on) {
-                                DiagLog.line(header(context));
-                                for (String message : drainEarly()) DiagLog.line(message);
-                                if (PKG_MAPS.equals(pkg)) {
-                                    reportTimelineClasses(context.getClassLoader());
-                                    watchActivities();
-                                }
-                            } else {
-                                drainEarly();
-                            }
+                            logContext = context;
+                            logPkg = pkg;
+                            applySwitch(ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
+                            switchListener = ModuleRuntime.watchSwitch(
+                                    DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
                         }
                     }
                 } catch (Throwable ignored) {
@@ -136,6 +138,26 @@ public class MainHook extends XposedModule {
         }
     }
 
+    /** Turn the log on/off in this process. Safe to call repeatedly from any thread. */
+    private synchronized void applySwitch(boolean on) {
+        Context context = logContext;
+        if (context == null || on == DiagLog.isEnabled()) return;
+        DiagLog.bind(context, on, processName());
+        if (!on) return;
+        DiagLog.line(header(context));
+        for (String message : drainEarly()) DiagLog.line(message);
+        if (PKG_MAPS.equals(logPkg) && !mapsWatchArmed) {
+            mapsWatchArmed = true;
+            reportTimelineClasses(context.getClassLoader());
+            watchActivities();
+        }
+    }
+
+    private volatile Context logContext;
+    private volatile String logPkg;
+    private volatile boolean mapsWatchArmed;
+    /** Strong reference: some frameworks keep listeners weakly. */
+    private Object switchListener;
     private volatile boolean logBound;
 
     private static String header(Context context) {

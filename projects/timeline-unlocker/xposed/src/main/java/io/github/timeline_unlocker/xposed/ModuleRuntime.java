@@ -13,8 +13,8 @@ import io.github.libxposed.service.XposedServiceHelper;
  * <ul>
  *   <li><b>Read side (hooked host, e.g. Maps):</b> the module is loaded into the host process, so
  *       {@link MainHook#onModuleLoaded} binds an {@link XposedInterface}. Its
- *       {@link XposedInterface#getRemotePreferences} is <b>read-only</b> — perfect for reading the
- *       switch once at Maps startup.</li>
+ *       {@link XposedInterface#getRemotePreferences} is <b>read-only</b>, and LSPosed pushes edits to it, so the
+ *       switch is followed live (see {@link #watchSwitch}).</li>
  *   <li><b>Write side (module's own app/UI process):</b> the module package is NOT in its own
  *       scope, so {@code onModuleLoaded} never fires here and no {@link XposedInterface} exists.
  *       The UI reaches the framework through {@link XposedService} instead — delivered by the
@@ -82,6 +82,37 @@ public final class ModuleRuntime {
             return prefs.getBoolean(key, false);
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /** Callback for {@link #watchSwitch}. */
+    interface SwitchListener {
+        void onSwitch(boolean on);
+    }
+
+    /**
+     * Follow a boolean switch live in the hooked process. LSPosed delivers remote-preference
+     * edits from the module app to every subscribed process; the returned object must be kept
+     * strongly reachable. Returns null when the framework is not bound.
+     */
+    static Object watchSwitch(String prefsName, String key, SwitchListener listener) {
+        try {
+            XposedInterface base = framework;
+            if (base == null) return null;
+            SharedPreferences prefs = base.getRemotePreferences(prefsName);
+            SharedPreferences.OnSharedPreferenceChangeListener l = (p, changed) -> {
+                // changed == null is the "cleared" signal on newer Android.
+                if (changed == null || key.equals(changed)) {
+                    try {
+                        listener.onSwitch(p.getBoolean(key, false));
+                    } catch (Throwable ignored) {
+                    }
+                }
+            };
+            prefs.registerOnSharedPreferenceChangeListener(l);
+            return l;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
