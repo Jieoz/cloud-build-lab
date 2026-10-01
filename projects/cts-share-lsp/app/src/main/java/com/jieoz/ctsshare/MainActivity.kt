@@ -1,19 +1,19 @@
 package com.jieoz.ctsshare
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import io.github.libxposed.service.HookedTarget
 
 /**
  * One switch + log shortcut, trimmed from rimet-mock's MainActivity. The status line reports what
  * LSPosed says about the Google :googleapp process (XposedService.getRunningTargets).
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
     private lateinit var pref: ModulePrefs.PublishingPrefs
     private lateinit var status: TextView
