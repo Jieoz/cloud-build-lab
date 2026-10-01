@@ -33,10 +33,9 @@ object DebugLog {
     const val TAG = "CTSShareLSP"
     const val DIR_NAME = "CtsShare"
     private const val EXT = ".txt"
-    private val sessionSuffix: String = UUID.randomUUID().toString().substring(0, 6)
 
     fun fileName(now: Date = Date()): String =
-        "ctsshare-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}-${Process.myPid()}-$sessionSuffix$EXT"
+        "ctsshare-${SimpleDateFormat("yyyyMMdd", Locale.US).format(now)}$EXT"  // one file per day; every Google process restart appends to it
 
     @Volatile
     private var enabled: Boolean = false

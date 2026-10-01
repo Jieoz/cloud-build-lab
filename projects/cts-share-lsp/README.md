@@ -35,6 +35,6 @@ License: GPL-3.0-only（继承上游）。
 ## 诊断日志
 
 模块 App 里有“诊断日志”开关，默认关，即时生效（remote prefs + 监听，和 yt-translate-probe 同一套）。
-开启后 Google `:googleapp` 进程把日志写到 `Download/CtsShare/ctsshare-YYYYMMDD-*.txt`，关闭时不写任何文件。
+开启后 Google `:googleapp` 进程把日志写到 `Download/CtsShare/ctsshare-YYYYMMDD.txt`（每天一个文件），关闭时不写任何文件。
 上游原本始终写 Google 私有目录 `files/cts-share-debug.log`，已改为走此开关。
 
