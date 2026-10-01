@@ -197,22 +197,15 @@ compensation would double-offset those locations.
    `activity ... action=VIEW data=https://www.google.com/maps/timeline`.
    Every line is mirrored to the LSPosed module log as well.
 
-## Entry watch (always on, Maps)
+## Entry watch (Maps, part of the debug log)
 
-The Timeline entry can vanish a day after it appeared. To date that without
-leaving the debug log on, the Maps main process always appends state changes to
+The Timeline entry can vanish a day after it appeared. With the debug log on,
+the Maps main process adds `watch` lines to its normal daily log; with the log
+off none of this runs.
 
-```text
-Download/TimelineUnlocker/timeline-watch-maps.txt
-```
-
-- `start identity=cn|us module=... last-entry=...`: every Maps launch.
-- `entry yes|no`: only when the on-screen entry state changes (`yes` on first
-  sighting in a launch; `no` only when a whole launch's scans found nothing).
-- `config new|changed|gone <file> <size>@<mtime>`: Maps' own flag /
-  experiment / prefs files that changed since the previous launch.
-- `read <method> -> <value> by <caller frames>`: each new country/operator read
-  of the day with the first app frames that made it.
-
-State between launches lives in Maps' no-backup dir. Scans stop for the rest of
-a launch once the entry has been seen (when the debug log is off).
+- `watch start identity=cn|us module=... last-entry=...`: every Maps launch.
+- `watch entry yes|no`: only when the on-screen entry state changes.
+- `watch config new|changed|gone <file> <size>@<mtime>`: Maps' own flag /
+  experiment / prefs files that changed since the previous logged launch.
+- `watch read <method> -> <value> by <caller frames>`: each new
+  country/operator read of the day with the first app frames that made it.

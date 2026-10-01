@@ -5,7 +5,6 @@ import android.content.Context;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashSet;
@@ -19,11 +18,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Long-running evidence for "the entry is gone a day later", Maps main process only, always on
- * (independent of the debug-log switch, so nothing needs to be left on for days).
+ * Evidence for "the entry is gone a day later", Maps main process only, and only while the debug
+ * log is on: with the log off nothing here runs (no hook work, no stack capture, no disk).
  *
- * <p>Writes one small file, {@code Download/TimelineUnlocker/timeline-watch-maps.txt}, with only
- * state changes:</p>
+ * <p>Adds {@code watch ...} lines to the normal Maps log, only on state changes:</p>
  * <ul>
  *   <li>{@code start}: every Maps launch with the identity Maps was given (cn/us).</li>
  *   <li>{@code entry}: entry seen / not seen, only when it differs from the last recorded state,
@@ -37,7 +35,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 final class EntryWatch {
 
-    static final String FILE = "timeline-watch-maps.txt";
     private static final String STATE = "timeline-unlocker-watch.properties";
     private static final int MAX_READS_PER_LAUNCH = 60;
     private static final int MAX_CALLERS_PER_DAY = 150;
@@ -67,9 +64,7 @@ final class EntryWatch {
         armed = true;
     }
 
-    static boolean armed() {
-        return armed && context != null;
-    }
+
 
     static void start(Context app, String mapsIdentity, String module) {
         if (!armed || context != null || app == null) return;
@@ -94,10 +89,6 @@ final class EntryWatch {
 
     private static volatile boolean seenThisLaunch;
 
-    /** With the debug log off, scans stop once the entry was seen this launch. */
-    static boolean settled() {
-        return seenThisLaunch;
-    }
 
     /**
      * One entry scan. {@code yes} is recorded the first time it is seen in a launch; {@code no}
@@ -105,7 +96,7 @@ final class EntryWatch {
      * moving between screens does not flip the record. Either is written only on a change.
      */
     static void entry(boolean found, String hits, boolean lastScan) {
-        if (context == null) return;
+        if (context == null || !DiagLog.isEnabled()) return;
         if (found) {
             if (seenThisLaunch) return;
             seenThisLaunch = true;
@@ -124,7 +115,9 @@ final class EntryWatch {
 
     /** A country/operator read inside Maps, with its caller. Capped per launch, deduped forever. */
     static void read(String member, String value) {
-        if (!armed || !WatchState.regionRead(member)) return;
+        // Before Application create the log is not bound yet; armed already means "log on".
+        if (!armed || (context != null && !DiagLog.isEnabled())) return;
+        if (!WatchState.regionRead(member)) return;
         if (reads.incrementAndGet() > MAX_READS_PER_LAUNCH) return;
         String caller = WatchState.callerSignature(new Throwable().getStackTrace());
         if (context == null) {
@@ -224,10 +217,7 @@ final class EntryWatch {
     }
 
     private static void write(String line) {
-        String text = stamp() + " " + line.replace('\n', ' ') + "\n";
-        if (!DiagLog.appendDownload(context, FILE, text.getBytes(StandardCharsets.UTF_8))) {
-            ModuleRuntime.frameworkLog("[watch] write failed: " + line);
-        }
+        DiagLog.line("watch " + line);
     }
 
     private static String day() {

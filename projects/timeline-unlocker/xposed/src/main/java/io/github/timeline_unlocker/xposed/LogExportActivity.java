@@ -108,7 +108,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n入口记录常开（不受开关影响）：「下载/TimelineUnlocker/timeline-watch-maps.txt」只记地图每次启动、入口出现/消失和配置变化，入口消失后把它发回即可。\n\n刚装或更新模块后，分别点「重新加载 Play 服务」和「重新加载地图」让新版生效，不需要 root。"
+                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n查入口消失：日志一直开着正常用地图，入口没了就把这几天的 maps txt 发回（里面 watch 开头的行记录每次启动、入口出现/消失和配置变化）。\n\n刚装或更新模块后，分别点「重新加载 Play 服务」和「重新加载地图」让新版生效，不需要 root。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (ready) snapshot("open");
         if (!ready && retries < 10) {
