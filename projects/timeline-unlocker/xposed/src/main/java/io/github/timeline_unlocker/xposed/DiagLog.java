@@ -149,7 +149,7 @@ public final class DiagLog {
         byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
         boolean ok = Build.VERSION.SDK_INT >= 29
                 ? appendMediaStore(context, bytes)
-                : appendFile(context, bytes);
+                : appendFile(fileName(process), bytes);
         if (!ok) {
             ModuleRuntime.frameworkLog("[" + process + "] file write failed: " + lastError);
             synchronized (LOCK) {
@@ -175,12 +175,30 @@ public final class DiagLog {
     }
 
     private static boolean appendMediaStore(Context context, byte[] bytes) {
+        Uri[] cached = {rowUri};
+        boolean ok = appendRow(context, fileName(process), bytes, cached);
+        rowUri = cached[0];
+        return ok;
+    }
+
+    /**
+     * Append to {@code Download/TimelineUnlocker/<name>} from a hooked process, independent of
+     * the log switch. Used by {@link EntryWatch} for its long-running file.
+     */
+    static boolean appendDownload(Context context, String name, byte[] bytes) {
+        if (context == null) return false;
+        if (Build.VERSION.SDK_INT < 29) return appendFile(name, bytes);
+        Uri[] cached = {null};
+        return appendRow(context, name, bytes, cached);
+    }
+
+    /** cached[0]: row to reuse (may be null), updated to the row written, null on failure. */
+    private static boolean appendRow(Context context, String name, byte[] bytes, Uri[] cached) {
         try {
             ContentResolver resolver = context.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-            String name = fileName(process);
             String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
-            Uri uri = rowUri != null ? rowUri : findRow(resolver, collection, relative, name);
+            Uri uri = cached[0] != null ? cached[0] : findRow(resolver, collection, relative, name);
             if (uri == null) {
                 ContentValues values = new ContentValues();
                 values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
@@ -192,7 +210,7 @@ public final class DiagLog {
                 lastError = "MediaStore insert returned null";
                 return false;
             }
-            rowUri = uri;
+            cached[0] = uri;
             OutputStream out = resolver.openOutputStream(uri, "wa");
             if (out == null) {
                 lastError = "openOutputStream returned null";
@@ -206,18 +224,18 @@ public final class DiagLog {
             return true;
         } catch (Throwable t) {
             lastError = t.toString();
-            rowUri = null;
+            cached[0] = null;
             return false;
         }
     }
 
-    private static boolean appendFile(Context context, byte[] bytes) {
+    private static boolean appendFile(String name, byte[] bytes) {
         try {
             File dir = new File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
             if (!dir.exists() && !dir.mkdirs()) return false;
             try (FileOutputStream fos = new FileOutputStream(
-                    new File(dir, fileName(process)), true)) {
+                    new File(dir, name), true)) {
                 fos.write(bytes);
             }
             return true;

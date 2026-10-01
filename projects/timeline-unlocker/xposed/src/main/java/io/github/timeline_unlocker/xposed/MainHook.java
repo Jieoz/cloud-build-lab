@@ -78,6 +78,12 @@ public class MainHook extends XposedModule {
             reloadListener = ModuleRuntime.watchKey(DiagLog.PREFS_NAME,
                     DiagLog.reloadKeyFor(processName()), prefs -> restartSelf());
         }
+        boolean mapsMain = PKG_MAPS.equals(pkg) && param.isFirstPackage()
+                && PKG_MAPS.equals(processName());
+        if (mapsMain) {
+            mapsIdentity = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US) ? "us" : "cn";
+            EntryWatch.arm();
+        }
         bindLog(cl, pkg);
         // The Application may already exist when the package is reported (GMS side processes);
         // then the create hook never fires, so bind now.
@@ -254,6 +260,12 @@ public class MainHook extends XposedModule {
         logPkg = pkg;
         boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
         ModuleRuntime.frameworkLog("[" + processName() + "] bound log=" + on);
+        if (PKG_MAPS.equals(pkg) && PKG_MAPS.equals(processName())) {
+            // Always on in the Maps main process: the entry record must cover days with the
+            // debug log off.
+            EntryWatch.start(app, mapsIdentity, BuildConfig.VERSION_NAME);
+            armActivityWatch();
+        }
         applySwitch(on);
         switchListener = ModuleRuntime.watchSwitch(
                 DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
@@ -332,16 +344,23 @@ public class MainHook extends XposedModule {
             DiagLog.line("uid processes: " + uidProcesses());
         }
         for (String message : drainEarly()) DiagLog.line(message);
-        if (PKG_MAPS.equals(logPkg) && !mapsWatchArmed) {
-            mapsWatchArmed = true;
+        if (PKG_MAPS.equals(logPkg) && !timelineClassesReported) {
+            timelineClassesReported = true;
             reportTimelineClasses(context.getClassLoader());
-            watchActivities();
         }
     }
 
     private volatile Context logContext;
     private volatile String logPkg;
-    private volatile boolean mapsWatchArmed;
+    private volatile boolean timelineClassesReported;
+    private volatile boolean activityWatchArmed;
+    private volatile String mapsIdentity = "?";
+
+    private synchronized void armActivityWatch() {
+        if (activityWatchArmed) return;
+        activityWatchArmed = true;
+        watchActivities();
+    }
     /** Strong reference: some frameworks keep listeners weakly. */
     private Object switchListener;
     private volatile Object reloadListener;
@@ -399,7 +418,8 @@ public class MainHook extends XposedModule {
         for (long delay : SCAN_DELAYS_MS) {
             h.postDelayed(() -> {
                 android.app.Activity a = ref.get();
-                if (a == null || a.isFinishing() || !DiagLog.isEnabled()) return;
+                if (a == null || a.isFinishing()) return;
+                if (!DiagLog.isEnabled() && (!EntryWatch.armed() || EntryWatch.settled())) return;
                 try {
                     android.view.View root = a.getWindow().getDecorView();
                     java.util.List<String> texts = new java.util.ArrayList<>();
@@ -408,6 +428,8 @@ public class MainHook extends XposedModule {
                     EntryScan.Result r = EntryScan.evaluate(texts);
                     log("entry scan %s t=%ds views=%d %s", a.getClass().getSimpleName(),
                             delay / 1000, views[0], r.line());
+                    EntryWatch.entry(r.found(), String.valueOf(r.hits),
+                            delay == SCAN_DELAYS_MS[SCAN_DELAYS_MS.length - 1]);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }
@@ -675,6 +697,8 @@ public class MainHook extends XposedModule {
                         String member = first instanceof String || first instanceof Integer
                                 ? method.getName() + "(" + first + ")" : method.getName();
                         noteProbe(simple, member, result, "seen");
+                        EntryWatch.read(simple + "." + member,
+                                result == null ? "null" : String.valueOf(result));
                         return result;
                     });
                     watched++;

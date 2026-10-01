@@ -196,3 +196,23 @@ compensation would double-offset those locations.
    new intent, so a Timeline deep link shows up as
    `activity ... action=VIEW data=https://www.google.com/maps/timeline`.
    Every line is mirrored to the LSPosed module log as well.
+
+## Entry watch (always on, Maps)
+
+The Timeline entry can vanish a day after it appeared. To date that without
+leaving the debug log on, the Maps main process always appends state changes to
+
+```text
+Download/TimelineUnlocker/timeline-watch-maps.txt
+```
+
+- `start identity=cn|us module=... last-entry=...`: every Maps launch.
+- `entry yes|no`: only when the on-screen entry state changes (`yes` on first
+  sighting in a launch; `no` only when a whole launch's scans found nothing).
+- `config new|changed|gone <file> <size>@<mtime>`: Maps' own flag /
+  experiment / prefs files that changed since the previous launch.
+- `read <method> -> <value> by <caller frames>`: each new country/operator read
+  of the day with the first app frames that made it.
+
+State between launches lives in Maps' no-backup dir. Scans stop for the rest of
+a launch once the entry has been seen (when the debug log is off).
