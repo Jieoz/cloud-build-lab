@@ -173,8 +173,10 @@ public class MainHook extends XposedModule {
      * system, and the module app reopens Maps. Short delay so the log line reaches disk.
      */
     private void restartSelf() {
-        String line = "reload requested: restarting " + processName() + " pid="
-                + android.os.Process.myPid();
+        int me = android.os.Process.myPid();
+        java.util.List<Integer> siblings = siblingPids(me);
+        String line = "reload requested: restarting " + processName() + " pid=" + me
+                + " siblings=" + siblings;
         ModuleRuntime.frameworkLog(line);
         log("%s", line);
         Thread t = new Thread(() -> {
@@ -182,10 +184,30 @@ public class MainHook extends XposedModule {
                 Thread.sleep(400);
             } catch (InterruptedException ignored) {
             }
-            android.os.Process.killProcess(android.os.Process.myPid());
+            // Processes sharing a UID may kill each other (Process.killProcess contract). This is
+            // how a process running the new build takes down siblings still running an old build
+            // that cannot hear the request: Play services' processes all share one UID.
+            for (int pid : siblings) android.os.Process.killProcess(pid);
+            android.os.Process.killProcess(me);
         }, "timeline-unlocker-reload");
         t.setDaemon(true);
         t.start();
+    }
+
+    /** Other running processes with this process's UID (only those are visible and killable). */
+    private static java.util.List<Integer> siblingPids(int me) {
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        try {
+            Application app = currentApplication();
+            if (app == null) return out;
+            android.app.ActivityManager am = app.getSystemService(android.app.ActivityManager.class);
+            int uid = android.os.Process.myUid();
+            for (android.app.ActivityManager.RunningAppProcessInfo p : am.getRunningAppProcesses()) {
+                if (p.uid == uid && p.pid != me) out.add(p.pid);
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
     }
 
     /** Turn the log on/off in this process. Safe to call repeatedly from any thread. */

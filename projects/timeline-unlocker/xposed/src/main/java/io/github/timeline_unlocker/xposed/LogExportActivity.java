@@ -184,10 +184,12 @@ public class LogExportActivity extends Activity {
                     : name + "已重新加载。现在没有正在运行的" + name + "进程，下次启动即用当前版本。");
             return;
         }
+        boolean anyFresh = fresh > 0;
         status.setText(name + "还有进程在用旧版本：\n" + String.join("\n", stale) + "\n\n"
                 + (maps ? "地图的旧进程收不到信号：在地图的应用信息里点「强行停止」，再点一次重新加载地图。"
-                        : "这些进程装的是 4.4 之前的模块，收不到信号，没有 root 也停不掉它们。"
-                        + "只需重启手机这一次，之后用这个按钮就行。"));
+                        : anyFresh
+                        ? "旧进程自己收不到信号，但已在用新版的同组进程会顺手把它们一起停掉。再点一次「重新加载 Play 服务」。"
+                        : "这一组里还没有在用新版的进程来代停旧进程。打开一次地图或 Play 商店让 Play 服务起个新进程，再点「重新加载 Play 服务」。"));
         if (maps) {
             try {
                 startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
