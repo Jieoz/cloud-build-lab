@@ -30,6 +30,7 @@ public class LogExportActivity extends Activity {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private Switch toggle;
+    private Switch mapsUs;
     private TextView body;
     private TextView status;
     private int retries;
@@ -56,6 +57,16 @@ public class LogExportActivity extends Activity {
         toggle.setTextColor(Color.parseColor("#FFFFFF"));
         toggle.setOnCheckedChangeListener(this::onToggle);
         root.addView(toggle);
+
+        mapsUs = new Switch(this);
+        mapsUs.setText("地图也读 us（实验）");
+        mapsUs.setTextColor(Color.parseColor("#FFFFFF"));
+        mapsUs.setPadding(0, dp(12), 0, 0);
+        mapsUs.setOnCheckedChangeListener(this::onMapsUs);
+        root.addView(mapsUs);
+        TextView mapsUsHint = text("关：地图读真实 SIM（cn），蓝点由地图自己校正，对齐。"
+                + "开：地图也读 us，模块代替地图做蓝点校正；切换后地图自动重新加载。", 13, "#9E9E9E");
+        root.addView(mapsUsHint);
 
         body = text("", 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
@@ -111,6 +122,23 @@ public class LogExportActivity extends Activity {
         toggle.setEnabled(enabled);
         toggle.setChecked(checked);
         toggle.setOnCheckedChangeListener(this::onToggle);
+        mapsUs.setOnCheckedChangeListener(null);
+        mapsUs.setEnabled(enabled);
+        mapsUs.setChecked(enabled && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US));
+        mapsUs.setOnCheckedChangeListener(this::onMapsUs);
+    }
+
+    /** Maps reads the identity once at start, so a change reloads Maps right away. */
+    private void onMapsUs(CompoundButton button, boolean checked) {
+        if (!ModuleRuntime.writeSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US, checked)) {
+            button.setOnCheckedChangeListener(null);
+            button.setChecked(!checked);
+            button.setOnCheckedChangeListener(this::onMapsUs);
+            Toast.makeText(this, "没写上，框架未连接或模块未激活。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        DiagLog.line("maps_us set " + checked);
+        reload(true);
     }
 
     /**

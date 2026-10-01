@@ -2,6 +2,7 @@ package io.github.timeline_unlocker.xposed;
 
 import android.app.Application;
 import android.content.Context;
+import android.location.Location;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -87,6 +88,16 @@ public class MainHook extends XposedModule {
             // correction for the live dot. The module only shifts history points.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
+            if (ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US)) {
+                // Maps reads us: it then stops its own GCJ-02 shift of the live dot, so the
+                // module does that shift on Location reads instead.
+                hookTelephonyManager(cl);
+                hookSystemProperties(cl);
+                hookLocationGcj02();
+                identity("maps identity: us (module shifts live location WGS-84 -> GCJ-02)");
+            } else {
+                identity("maps identity: real SIM (cn), Maps shifts the live dot itself");
+            }
         } else {
             // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
             // are the working pair. Keep exactly that.
@@ -94,6 +105,71 @@ public class MainHook extends XposedModule {
             hookTelephonyManager(cl);
             hookSystemProperties(cl);
         }
+    }
+
+    /** Always reaches the LSPosed log too, so the Maps identity is known even with the log off. */
+    private void identity(String line) {
+        ModuleRuntime.frameworkLog("[" + processName() + "] " + line);
+        log("%s", line);
+    }
+
+    private static final int MAX_LOCATION_SAMPLES = 5;
+    private final java.util.concurrent.atomic.AtomicInteger locationSamples =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    private void hookLocationGcj02() {
+        final ThreadLocal<LocationTransformState> state =
+                ThreadLocal.withInitial(LocationTransformState::new);
+        try {
+            hook(Location.class.getDeclaredMethod("getLatitude")).intercept(chain -> {
+                LocationTransformState current = state.get();
+                if (current.inHook) return chain.proceed();
+                current.inHook = true;
+                try {
+                    Location loc = (Location) chain.getThisObject();
+                    double lat = (Double) chain.proceed();
+                    double lng = loc.getLongitude();
+                    if (current.cache.update(loc, lat, lng)) noteLocation(loc, lat, lng, current.cache);
+                    return current.cache.transformedLatitude();
+                } finally {
+                    current.inHook = false;
+                }
+            });
+            hook(Location.class.getDeclaredMethod("getLongitude")).intercept(chain -> {
+                LocationTransformState current = state.get();
+                if (current.inHook) return chain.proceed();
+                current.inHook = true;
+                try {
+                    Location loc = (Location) chain.getThisObject();
+                    double lng = (Double) chain.proceed();
+                    double lat = loc.getLatitude();
+                    if (current.cache.update(loc, lat, lng)) noteLocation(loc, lat, lng, current.cache);
+                    return current.cache.transformedLongitude();
+                } finally {
+                    current.inHook = false;
+                }
+            });
+            log("Location GCJ-02 transform hooks installed");
+        } catch (Throwable t) {
+            log("hook Location lat/lng failed: %s", t);
+        }
+    }
+
+    /** First few live fixes: provider, raw and shifted position, shift in metres (rounded). */
+    private void noteLocation(Location loc, double lat, double lng, LocationTransformCache cache) {
+        if (locationSamples.get() >= MAX_LOCATION_SAMPLES) return;
+        if (locationSamples.incrementAndGet() > MAX_LOCATION_SAMPLES) return;
+        double outLat = cache.transformedLatitude();
+        double outLng = cache.transformedLongitude();
+        double dy = (outLat - lat) * 111_320.0;
+        double dx = (outLng - lng) * 111_320.0 * Math.cos(Math.toRadians(lat));
+        log("location shift provider=%s raw=%.3f,%.3f shift=%dm", loc.getProvider(),
+                lat, lng, Math.round(Math.hypot(dx, dy)));
+    }
+
+    private static final class LocationTransformState {
+        private final LocationTransformCache cache = new LocationTransformCache();
+        private boolean inHook;
     }
 
     private void log(String fmt, Object... args) {

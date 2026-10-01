@@ -34,6 +34,12 @@ What each process gets:
   real SIM, so it keeps its own WGS-84 &rarr; GCJ-02 correction for the live
   location dot. The module only shifts Timeline history points (see below).
 
+Experimental switch "地图也读 us" (key `maps_us`, read when Maps starts): Maps
+also gets the US identity, and since Maps then drops its own GCJ-02 shift of the
+live dot, the module shifts `Location.getLatitude/getLongitude` WGS-84 &rarr;
+GCJ-02 inside Maps. Off by default; the log line `maps identity:` shows which
+mode Maps started in.
+
 This pairing is the only one that gave both a visible Timeline and aligned
 maps on the test device. Spoofing `us` inside Maps too makes Maps drop its own
 correction; re-adding it with a `Location` hook left the dot and the road /

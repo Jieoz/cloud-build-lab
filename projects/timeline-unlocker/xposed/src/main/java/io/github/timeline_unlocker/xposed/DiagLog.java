@@ -48,6 +48,8 @@ public final class DiagLog {
     public static final String PREFS_NAME = "switch";
     /** Boolean key inside {@link #PREFS_NAME}; absent/false means the log is off. */
     public static final String KEY_ON = "on";
+    /** Boolean key: Maps itself reads a US identity (read when Maps starts). */
+    public static final String KEY_MAPS_US = "maps_us";
     /** Long keys inside {@link #PREFS_NAME}: a new value asks that group's processes to restart. */
     public static final String KEY_RELOAD_MAPS = "reload_maps";
     public static final String KEY_RELOAD_GMS = "reload_gms";
