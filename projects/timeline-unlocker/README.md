@@ -20,23 +20,20 @@ The module only loads in:
 - `com.google.android.gsf`
 - `com.google.android.apps.maps`
 
-In those processes it returns fake values for:
+What each process gets:
 
-- `TelephonyManager.getSimCountryIso{,ForPhone}` &rarr; `us`
-- `TelephonyManager.getNetworkCountryIso{,ForPhone}` &rarr; `us`
-- `TelephonyManager.getSimOperator{,Numeric,ForPhone}` &rarr; `310030`
-- `TelephonyManager.getNetworkOperator{,Numeric,ForPhone}` &rarr; `310030`
-- `SubscriptionInfo.getCountryIso()` &rarr; `US` (upper case, per the
-  platform contract for this method)
-- `SubscriptionInfo.getMcc{,String}()` &rarr; `310`
-- `SubscriptionInfo.getMnc{,String}()` &rarr; `30` / `030`
-- `SystemProperties.get(...)` for `gsm.(sim.)?operator.(numeric|iso-country)`
+- `com.google.android.gms` / `com.google.android.gsf`:
+  `TelephonyManager.getSimCountryIso{,ForPhone}` &rarr; `us`, and
+  `SystemProperties.get(...)` for `gsm.(sim.)?operator.(numeric|iso-country)`
+  &rarr; `310030` / `us`. This is what makes the account eligible for Timeline.
+- `com.google.android.apps.maps`: **no telephony spoof.** Maps keeps reading the
+  real SIM, so it keeps its own WGS-84 &rarr; GCJ-02 correction for the live
+  location dot. The module only shifts Timeline history points (see below).
 
-Other property reads pass through unchanged.
-
-All processes of the three packages are injected (including secondary GMS
-processes such as `com.google.android.gms.unstable`); the hooks themselves
-only alter the telephony reads listed above.
+This pairing is the only one that gave both a visible Timeline and aligned
+maps on the test device. Spoofing `us` inside Maps too makes Maps drop its own
+correction; re-adding it with a `Location` hook left the dot and the road /
+satellite layers apart, so that path was removed.
 
 ## Build
 
@@ -80,19 +77,18 @@ by default and never writes its passwords to the repository.
 2. In LSPosed manager, enable **Timeline Unlocker (Xposed)**.
 3. Confirm the scope includes the three Google packages above.
 4. Force-stop GMS, Maps, and GSF (or reboot). Open Maps &rarr; Timeline.
+5. If the in-app Timeline entry is hidden that day (the server decides it),
+   open the module app and tap **在地图中打开时间轴**. It opens Timeline through
+   a Maps deep link, so it does not depend on any one menu entry.
 
 ## GCJ-02 offset compensation
 
-Spoofing country to `us` in `com.google.android.apps.maps` makes Maps stop
-applying its built-in WGS-84 &rarr; GCJ-02 conversion, so the live location
-dot drifts off the China map tiles by a few hundred meters.
-
-To compensate, the Maps process additionally hooks
-`Location.getLatitude()` / `Location.getLongitude()` and applies the public
-WGS-84 &rarr; GCJ-02 transform when the coordinate falls inside mainland
-China's GCJ-02 coverage. Hong Kong, Macao, and Taiwan are excluded because
-Maps does not need this compensation there. The dot then realigns with the
-GCJ-02 tiles without introducing an offset in those regions.
+Maps itself corrects the live location dot because it still sees the real
+China SIM. Timeline history comes from GMS in raw WGS-84, so the Maps process
+hooks `PlaceCandidate$Point(int, int)` &mdash; the Parcelable constructor used
+when Maps reads Visit / Activity data from GMS over Binder &mdash; and applies
+the public WGS-84 &rarr; GCJ-02 transform inside mainland China. Hong Kong,
+Macao, and Taiwan are excluded. GMS / GSF still see original WGS-84 values.
 
 ### Regional boundary data
 
@@ -125,17 +121,11 @@ historical entries align with the tiles as well.
 
 ## Known limitations and risks
 
-**The Maps-process Location hook is process-global.** Every consumer of
-`Location.getLatitude()` / `getLongitude()` inside Maps sees GCJ-02 values,
-including non-display uses:
+**The Timeline entry itself is decided server-side.** The same build has shown
+and hidden the in-app entry on different days. The deep-link button in the
+module app is the fallback for those days.
 
-- Location shared with other people is sent as GCJ-02 coordinates labelled
-  as WGS-84, so recipients see the usual few-hundred-meter offset.
-- `Location.distanceBetween()` (a static API) reads raw internal values and
-  does not go through the hook, so mixed raw/transformed coordinates can
-  produce slightly inconsistent distance/bearing results inside Maps.
-
-**Anything Maps derives from hooked locations and persists or uploads
+**Anything Maps derives from shifted history points and persists or uploads
 leaves the device as GCJ-02-mislabelled WGS-84.** The intended data flow is:
 GMS records Timeline history from unhooked WGS-84 locations, and Maps only
 *renders* that data. A dex-level inspection of the Maps build this module was

@@ -60,6 +60,11 @@ public class LogExportActivity extends Activity {
         body.setPadding(0, dp(16), 0, dp(24));
         root.addView(body);
 
+        TextView timeline = text("在地图中打开时间轴", 18, "#8AB4F8");
+        timeline.setPadding(0, dp(8), 0, dp(20));
+        timeline.setOnClickListener(v -> openTimeline());
+        root.addView(timeline);
+
         TextView open = text("打开系统下载", 16, "#8AB4F8");
         open.setOnClickListener(v -> openDownloads());
         root.addView(open);
@@ -106,6 +111,30 @@ public class LogExportActivity extends Activity {
                         : "已关闭。地图下次重启后停止写。",
                 Toast.LENGTH_LONG).show();
     }
+
+    /**
+     * Opens Timeline through a Maps deep link instead of relying on the in-app entry, which the
+     * server can hide on any given day. Tried in order; the first link Maps accepts wins.
+     */
+    private void openTimeline() {
+        for (String link : TIMELINE_LINKS) {
+            Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                    .setPackage(MAPS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(intent);
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
+        Toast.makeText(this, "地图没有接收时间轴链接，请确认已安装 Google 地图。", Toast.LENGTH_LONG).show();
+    }
+
+    private static final String MAPS = "com.google.android.apps.maps";
+    static final String[] TIMELINE_LINKS = {
+            "https://www.google.com/maps/timeline",
+            "https://timeline.google.com/maps/timeline",
+    };
 
     private void openDownloads() {
         try {
