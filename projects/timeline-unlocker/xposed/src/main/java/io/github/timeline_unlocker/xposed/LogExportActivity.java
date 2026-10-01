@@ -222,9 +222,7 @@ public class LogExportActivity extends Activity {
         String owner = maps ? MAPS : stalePackage(staleProcesses);
         String ownerName = maps ? "地图" : GSF.equals(owner) ? "Google 服务框架" : "Google Play 服务";
         status.setText(name + "还有进程在用旧版本：\n" + String.join("\n", stale) + "\n\n"
-                + "已打开「" + ownerName + "」的应用信息：点「强行停止」→「确定」，然后返回这里，会自动再核对一次。
-
-"
+                + "已打开「" + ownerName + "」的应用信息：点「强行停止」→「确定」，然后返回这里，会自动再核对一次。\n\n"
                 + "应用信息里找不到或点不了强行停止时：打开 LSPosed →「模块」→ 本模块 → 在作用域列表里长按「" + ownerName + "」→「强行停止」。");
         pendingCheck = maps ? CHECK_MAPS : CHECK_GMS;
         openAppInfo(owner);
