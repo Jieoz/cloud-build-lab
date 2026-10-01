@@ -174,7 +174,7 @@ public final class ModuleRuntime {
 
     /**
      * Ask every hooked process to restart itself: writes a fresh timestamp, which LSPosed pushes
-     * to every process listening on {@link DiagLog#KEY_RELOAD}. No root involved.
+     * to every process listening on that key. No root involved.
      */
     public static boolean requestReload(String prefsName, String key) {
         try {

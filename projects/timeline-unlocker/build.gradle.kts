@@ -2,8 +2,8 @@ plugins {
     alias(libs.plugins.agp.app) apply false
 }
 
-val verName by extra("4.4-log92")
-val verCode by extra(118)
+val verName by extra("4.5-log93")
+val verCode by extra(119)
 
 subprojects {
     dependencyLocking {

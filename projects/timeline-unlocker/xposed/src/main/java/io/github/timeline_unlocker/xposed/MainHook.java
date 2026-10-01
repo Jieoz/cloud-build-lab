@@ -58,8 +58,8 @@ public class MainHook extends XposedModule {
         if (reloadListener == null) {
             // Registered here, not on Application create: it needs no Context, so it works in
             // every hooked process even if the log never binds there.
-            reloadListener = ModuleRuntime.watchKey(
-                    DiagLog.PREFS_NAME, DiagLog.KEY_RELOAD, prefs -> restartSelf());
+            reloadListener = ModuleRuntime.watchKey(DiagLog.PREFS_NAME,
+                    DiagLog.reloadKeyFor(processName()), prefs -> restartSelf());
         }
         bindLog(cl, pkg);
         // The Application may already exist when the package is reported (GMS side processes);

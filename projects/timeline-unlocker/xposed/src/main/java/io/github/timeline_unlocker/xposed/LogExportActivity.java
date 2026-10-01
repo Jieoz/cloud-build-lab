@@ -66,10 +66,15 @@ public class LogExportActivity extends Activity {
         timeline.setOnClickListener(v -> openTimeline());
         root.addView(timeline);
 
-        TextView restart = text("重新加载地图和 Play 服务", 16, "#8AB4F8");
-        restart.setPadding(0, 0, 0, dp(20));
-        restart.setOnClickListener(v -> restartTargets());
-        root.addView(restart);
+        TextView reloadMaps = text("重新加载地图", 16, "#8AB4F8");
+        reloadMaps.setPadding(0, 0, 0, dp(16));
+        reloadMaps.setOnClickListener(v -> reload(true));
+        root.addView(reloadMaps);
+
+        TextView reloadGms = text("重新加载 Play 服务", 16, "#8AB4F8");
+        reloadGms.setPadding(0, 0, 0, dp(16));
+        reloadGms.setOnClickListener(v -> reload(false));
+        root.addView(reloadGms);
         status = text("", 14, "#E0E0E0");
         status.setPadding(0, 0, 0, dp(20));
         root.addView(status);
@@ -92,7 +97,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，点一次「重新加载地图和 Play 服务」让伪装生效，不需要 root，也不用重启手机。"
+                ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，分别点「重新加载 Play 服务」和「重新加载地图」让新版生效，不需要 root。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (!ready && retries < 10) {
             retries++;
@@ -142,48 +147,53 @@ public class LogExportActivity extends Activity {
 
     private static final String MAPS = "com.google.android.apps.maps";
     /**
-     * Hooks install when a process starts, so after installing or updating the module the three
-     * Google packages must start again. No root: every hooked process listens for a reload
-     * request pushed through LSPosed remote preferences and restarts itself. Then the framework's
-     * list of hooked processes shows which ones now run this build.
+     * Hooks install when a process starts, so after installing or updating the module the hooked
+     * processes must start again. No root: each hooked process listens on its group's key in
+     * LSPosed remote preferences and kills itself when it changes. The system brings Play
+     * services back on demand; Maps is reopened here. Afterwards the framework's process list
+     * shows whether anything in the group still runs an older build.
      */
-    private void restartTargets() {
-        if (!ModuleRuntime.requestReload(DiagLog.PREFS_NAME, DiagLog.KEY_RELOAD)) {
+    private void reload(boolean maps) {
+        String key = maps ? DiagLog.KEY_RELOAD_MAPS : DiagLog.KEY_RELOAD_GMS;
+        if (!ModuleRuntime.requestReload(DiagLog.PREFS_NAME, key)) {
             Toast.makeText(this, "框架未连接，请确认模块已在 LSPosed 中激活。", Toast.LENGTH_LONG).show();
             return;
         }
-        Toast.makeText(this, "正在重新加载…", Toast.LENGTH_SHORT).show();
+        status.setText(maps ? "正在重新加载地图…" : "正在重新加载 Play 服务…");
         main.postDelayed(() -> {
-            openMaps();
-            main.postDelayed(this::showTargets, 2500);
+            if (maps) openMaps();
+            main.postDelayed(() -> showTargets(maps), 2500);
         }, 1500);
     }
 
-    /** Which hooked processes run this build and which still run an older one. */
-    private void showTargets() {
+    /** Which processes of the group run this build and which still run an older one. */
+    private void showTargets(boolean maps) {
         long current = currentVersionCode();
         java.util.List<String> stale = new java.util.ArrayList<>();
         int fresh = 0;
-        java.util.List<ModuleRuntime.Target> targets = ModuleRuntime.runningTargets();
-        if (targets.isEmpty()) {
-            status.setText("已发出重新加载。框架没有返回进程列表，以日志首行的版本号为准。");
-            return;
-        }
-        for (ModuleRuntime.Target t : targets) {
+        for (ModuleRuntime.Target t : ModuleRuntime.runningTargets()) {
+            boolean isMaps = DiagLog.KEY_RELOAD_MAPS.equals(DiagLog.reloadKeyFor(t.process));
+            if (isMaps != maps) continue;
             if (t.loadedVersion == current) fresh++;
             else stale.add(staleLine(t.process, t.loadedVersion));
         }
+        String name = maps ? "地图" : "Play 服务";
         if (stale.isEmpty()) {
-            status.setText("重新加载完成：" + fresh + " 个进程已在用当前版本。");
+            status.setText(fresh > 0
+                    ? name + "已重新加载：" + fresh + " 个进程在用当前版本。"
+                    : name + "已重新加载。现在没有正在运行的" + name + "进程，下次启动即用当前版本。");
             return;
         }
-        status.setText("还有进程在用旧版本（多半是刚装的这一版，它们还不认识重新加载）：\n"
-                + String.join("\n", stale)
-                + "\n\n只需这一次：在 Play 服务的应用信息里点「强行停止」，再点一次重新加载。以后就不用了。");
-        try {
-            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    android.net.Uri.fromParts("package", GMS, null)));
-        } catch (Throwable ignored) {
+        status.setText(name + "还有进程在用旧版本：\n" + String.join("\n", stale) + "\n\n"
+                + (maps ? "地图的旧进程收不到信号：在地图的应用信息里点「强行停止」，再点一次重新加载地图。"
+                        : "这些进程装的是 4.4 之前的模块，收不到信号，没有 root 也停不掉它们。"
+                        + "只需重启手机这一次，之后用这个按钮就行。"));
+        if (maps) {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.fromParts("package", MAPS, null)));
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -198,8 +208,6 @@ public class LogExportActivity extends Activity {
             return -1;
         }
     }
-
-    private static final String GMS = "com.google.android.gms";
 
     private void openMaps() {
         try {
