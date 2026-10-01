@@ -99,6 +99,7 @@ public class LogExportActivity extends Activity {
         body.setText(ready
                 ? "默认关闭。打开后立即生效，不用重启。复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。\n\n刚装或更新模块后，分别点「重新加载 Play 服务」和「重新加载地图」让新版生效，不需要 root。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
+        if (ready) snapshot("open");
         if (!ready && retries < 10) {
             retries++;
             main.postDelayed(this::refreshState, 300);
@@ -110,6 +111,23 @@ public class LogExportActivity extends Activity {
         toggle.setEnabled(enabled);
         toggle.setChecked(checked);
         toggle.setOnCheckedChangeListener(this::onToggle);
+    }
+
+    /**
+     * The module app's own log file (timeline-*-module.txt). It records the framework's list of
+     * hooked processes, so a missing GMS file can be told apart: GMS not hooked, GMS on an old
+     * build, or GMS hooked but unable to write.
+     */
+    private void snapshot(String why) {
+        if (!ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON)) return;
+        if (!DiagLog.isEnabled()) DiagLog.bind(getApplicationContext(), true, "module");
+        long current = currentVersionCode();
+        java.util.List<ModuleRuntime.Target> targets = ModuleRuntime.runningTargets();
+        DiagLog.line("snapshot " + why + " module=" + current + " hooked=" + targets.size());
+        for (ModuleRuntime.Target t : targets) {
+            DiagLog.line("  hooked " + t.process + " version=" + t.loadedVersion
+                    + (t.loadedVersion == current ? "" : " (old)"));
+        }
     }
 
     private void onToggle(CompoundButton button, boolean checked) {
@@ -168,6 +186,7 @@ public class LogExportActivity extends Activity {
 
     /** Which processes of the group run this build and which still run an older one. */
     private void showTargets(boolean maps) {
+        snapshot(maps ? "after reload maps" : "after reload gms");
         long current = currentVersionCode();
         java.util.List<String> stale = new java.util.ArrayList<>();
         int fresh = 0;

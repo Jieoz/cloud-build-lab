@@ -69,6 +69,8 @@ public final class DiagLog {
     private static volatile Handler writer;    // created only when ON
     private static volatile Uri rowUri;
     private static volatile String process = "module";
+    /** Why the last write failed; mirrored to the LSPosed log, which needs no storage. */
+    private static volatile String lastError;
 
     private DiagLog() {}
 
@@ -147,6 +149,7 @@ public final class DiagLog {
                 ? appendMediaStore(context, bytes)
                 : appendFile(context, bytes);
         if (!ok) {
+            ModuleRuntime.frameworkLog("[" + process + "] file write failed: " + lastError);
             synchronized (LOCK) {
                 pending.add(0, stamp() + " file write failed");
             }
@@ -183,10 +186,16 @@ public final class DiagLog {
                 values.put(MediaStore.MediaColumns.RELATIVE_PATH, relative);
                 uri = resolver.insert(collection, values);
             }
-            if (uri == null) return false;
+            if (uri == null) {
+                lastError = "MediaStore insert returned null";
+                return false;
+            }
             rowUri = uri;
             OutputStream out = resolver.openOutputStream(uri, "wa");
-            if (out == null) return false;
+            if (out == null) {
+                lastError = "openOutputStream returned null";
+                return false;
+            }
             try {
                 out.write(bytes);
             } finally {
@@ -194,6 +203,8 @@ public final class DiagLog {
             }
             return true;
         } catch (Throwable t) {
+            lastError = t.toString();
+            rowUri = null;
             return false;
         }
     }
