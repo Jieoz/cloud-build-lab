@@ -191,10 +191,29 @@ public final class ModuleRuntime {
     public static final class Target {
         public final String process;
         public final long loadedVersion;
+        final io.github.libxposed.service.HookedTarget raw;
 
-        Target(String process, long loadedVersion) {
+        Target(String process, long loadedVersion, io.github.libxposed.service.HookedTarget raw) {
             this.process = process;
             this.loadedVersion = loadedVersion;
+            this.raw = raw;
+        }
+    }
+
+    /**
+     * Ask the framework to hot-reload the module in one hooked process. The daemon thaws a cached
+     * (frozen) process first, so this reaches processes a preference push cannot wake. The module
+     * answers by restarting the process ({@link MainHook#onHotReloading}). Builds before 4.8 do
+     * not answer and refuse. Returns false if the request could not be sent.
+     */
+    public static boolean hotReload(Target target) {
+        try {
+            XposedService bound = service;
+            if (bound == null || target.raw == null) return false;
+            bound.hotReloadModule(target.raw, null, (t, r) -> { });
+            return true;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -205,7 +224,7 @@ public final class ModuleRuntime {
             XposedService bound = service;
             if (bound == null) return out;
             for (io.github.libxposed.service.HookedTarget t : bound.getRunningTargets()) {
-                out.add(new Target(t.getProcessName(), t.getLoadedVersionCode()));
+                out.add(new Target(t.getProcessName(), t.getLoadedVersionCode(), t));
             }
         } catch (Throwable ignored) {
         }

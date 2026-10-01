@@ -33,4 +33,17 @@ public class ReloadTest {
         assertNotEquals(DiagLog.KEY_ON, DiagLog.KEY_RELOAD_MAPS);
         assertNotEquals(DiagLog.KEY_ON, DiagLog.KEY_RELOAD_GMS);
     }
+
+    @Test
+    public void staleGmsProcessesOpenPlayServicesInfo() {
+        assertEquals("com.google.android.gms", LogExportActivity.stalePackage(java.util.Arrays.asList(
+                "com.google.android.gms.unstable", "com.google.android.gms",
+                "com.google.process.gservices", "com.google.process.gapps")));
+    }
+
+    @Test
+    public void onlyGservicesLeftOpensServicesFrameworkInfo() {
+        assertEquals("com.google.android.gsf",
+                LogExportActivity.stalePackage(java.util.Arrays.asList("com.google.process.gservices")));
+    }
 }

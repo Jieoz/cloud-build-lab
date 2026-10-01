@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedModuleInterface.HotReloadingParam;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
@@ -41,6 +42,19 @@ public class MainHook extends XposedModule {
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
         ModuleRuntime.bind(this);
+    }
+
+    /**
+     * The module app's reload button asks the framework to hot-reload this process. Swapping hooks
+     * in place would not re-run onPackageReady, so the reload is answered the same way as the
+     * preference push: restart the process. The framework thaws a frozen process before calling
+     * this, which is what makes it reach cached Play services processes. Returning false refuses
+     * the in-place swap; the process is gone a moment later either way.
+     */
+    @Override
+    public boolean onHotReloading(HotReloadingParam param) {
+        restartSelf();
+        return false;
     }
 
     @Override

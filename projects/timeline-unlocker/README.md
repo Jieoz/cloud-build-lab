@@ -77,13 +77,12 @@ by default and never writes its passwords to the repository.
 2. In LSPosed manager, enable **Timeline Unlocker (Xposed)**.
 3. Confirm the scope includes the three Google packages above.
 4. Open the module app and tap **重新加载 Play 服务**, then **重新加载地图**.
-   No root and no reboot: each hooked process listens for its group's request
-   (pushed by LSPosed) and restarts itself; the system brings Play services back
-   and the app reopens Maps. Afterwards it lists any process of that group still
-   running an older build. Play services processes started under a build before
-   4.4 cannot hear the request; a Play services process already on the new build
-   stops them for it (processes sharing a UID may kill each other), so tapping
-   the button a second time clears them. No reboot.
+   No root and no reboot. Each button reaches its own group two ways: a
+   preference push, and the framework's hot reload (which thaws cached
+   processes first); from 4.8 a hooked process answers either by restarting
+   itself. The app then reads the framework's list of hooked processes. If any
+   still runs an older build (those never answer), it opens that package's app
+   info page: tap 强行停止, come back, and it checks again by itself.
 5. If the in-app Timeline entry is hidden that day (the server decides it),
    open the module app and tap **在地图中打开时间轴**. It opens Timeline through
    a Maps deep link, so it does not depend on any one menu entry.

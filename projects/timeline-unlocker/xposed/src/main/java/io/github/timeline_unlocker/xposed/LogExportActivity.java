@@ -177,6 +177,14 @@ public class LogExportActivity extends Activity {
             Toast.makeText(this, "框架未连接，请确认模块已在 LSPosed 中激活。", Toast.LENGTH_LONG).show();
             return;
         }
+        // Also go through the framework's hot reload: it thaws cached processes the push above
+        // cannot wake. Processes from 4.8 on restart; older ones refuse and are shown afterwards.
+        int asked = 0;
+        for (ModuleRuntime.Target t : ModuleRuntime.runningTargets()) {
+            boolean isMaps = DiagLog.KEY_RELOAD_MAPS.equals(DiagLog.reloadKeyFor(t.process));
+            if (isMaps == maps && ModuleRuntime.hotReload(t)) asked++;
+        }
+        DiagLog.line("reload " + (maps ? "maps" : "gms") + " push sent, hot reload asked=" + asked);
         status.setText(maps ? "正在重新加载地图…" : "正在重新加载 Play 服务…");
         main.postDelayed(() -> {
             if (maps) openMaps();
@@ -189,12 +197,16 @@ public class LogExportActivity extends Activity {
         snapshot(maps ? "after reload maps" : "after reload gms");
         long current = currentVersionCode();
         java.util.List<String> stale = new java.util.ArrayList<>();
+        java.util.List<String> staleProcesses = new java.util.ArrayList<>();
         int fresh = 0;
         for (ModuleRuntime.Target t : ModuleRuntime.runningTargets()) {
             boolean isMaps = DiagLog.KEY_RELOAD_MAPS.equals(DiagLog.reloadKeyFor(t.process));
             if (isMaps != maps) continue;
             if (t.loadedVersion == current) fresh++;
-            else stale.add(staleLine(t.process, t.loadedVersion));
+            else {
+                stale.add(staleLine(t.process, t.loadedVersion));
+                staleProcesses.add(t.process);
+            }
         }
         String name = maps ? "地图" : "Play 服务";
         if (stale.isEmpty()) {
@@ -203,18 +215,65 @@ public class LogExportActivity extends Activity {
                     : name + "已重新加载。现在没有正在运行的" + name + "进程，下次启动即用当前版本。");
             return;
         }
-        boolean anyFresh = fresh > 0;
+        // A reload request is a push to the process. Processes on a build before 4.4 never listen,
+        // and a cached (frozen) process does not run the listener until it is thawed, so the push
+        // cannot be relied on to replace them. Settings' force stop can, without root: open the
+        // app info page of the package that owns the stale processes.
+        String owner = maps ? MAPS : stalePackage(staleProcesses);
+        String ownerName = maps ? "地图" : GSF.equals(owner) ? "Google 服务框架" : "Google Play 服务";
         status.setText(name + "还有进程在用旧版本：\n" + String.join("\n", stale) + "\n\n"
-                + (maps ? "地图的旧进程收不到信号：在地图的应用信息里点「强行停止」，再点一次重新加载地图。"
-                        : anyFresh
-                        ? "旧进程自己收不到信号，但已在用新版的同组进程会顺手把它们一起停掉。再点一次「重新加载 Play 服务」。"
-                        : "这一组里还没有在用新版的进程来代停旧进程。打开一次地图或 Play 商店让 Play 服务起个新进程，再点「重新加载 Play 服务」。"));
-        if (maps) {
-            try {
-                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        android.net.Uri.fromParts("package", MAPS, null)));
-            } catch (Throwable ignored) {
-            }
+                + "已打开「" + ownerName + "」的应用信息：点「强行停止」→「确定」，然后返回这里，会自动再核对一次。
+
+"
+                + "应用信息里找不到或点不了强行停止时：打开 LSPosed →「模块」→ 本模块 → 在作用域列表里长按「" + ownerName + "」→「强行停止」。");
+        pendingCheck = maps ? CHECK_MAPS : CHECK_GMS;
+        openAppInfo(owner);
+    }
+
+    /** Package whose app info page force-stops the given stale Play services processes. */
+    static String stalePackage(java.util.List<String> processes) {
+        boolean onlyGservices = !processes.isEmpty();
+        for (String p : processes) {
+            if (!p.startsWith("com.google.process.gservices")) onlyGservices = false;
+        }
+        // Force-stopping Play services takes gapps, unstable, persistent and the main process.
+        // gservices belongs to the services framework and may survive it; then open that one.
+        return onlyGservices ? GSF : GMS;
+    }
+
+    private void openAppInfo(String pkg) {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.fromParts("package", pkg, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Throwable t) {
+            Toast.makeText(this, "打不开应用信息页", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static final String GMS = "com.google.android.gms";
+    private static final String GSF = "com.google.android.gsf";
+    private static final int CHECK_NONE = 0;
+    private static final int CHECK_MAPS = 1;
+    private static final int CHECK_GMS = 2;
+    /** Set when app info was opened; on return the same group is checked again. */
+    private int pendingCheck = CHECK_NONE;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        int check = pendingCheck;
+        if (check == CHECK_NONE) return;
+        pendingCheck = CHECK_NONE;
+        if (check == CHECK_MAPS) {
+            // Maps was stopped by hand; start it so it loads the current build, then check.
+            main.postDelayed(() -> {
+                openMaps();
+                main.postDelayed(() -> showTargets(true), 2500);
+            }, 500);
+        } else {
+            // Play services restarts on demand; give it a moment before reading the list.
+            main.postDelayed(() -> showTargets(false), 2500);
         }
     }
 
