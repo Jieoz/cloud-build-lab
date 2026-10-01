@@ -23,7 +23,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
  * </ul>
  *
  * <p>The diagnostic log is off by default. Its switch is a plain private SharedPreference written
- * by the module UI ({@link LogExportActivity}) and read <b>once</b>, read-only, by the Maps process
+ * by the module UI ({@link LogExportActivity}) and read <b>once</b>, read-only, by every hooked process
  * through {@link XposedInterface#getRemotePreferences}. No broadcast, no polling, no wake-ups.</p>
  */
 public class MainHook extends XposedModule {
@@ -49,7 +49,7 @@ public class MainHook extends XposedModule {
             return;
         }
         ClassLoader cl = param.getClassLoader();
-        log("loading package: %s", pkg);
+        log("loading package: %s first=%s process=%s", pkg, param.isFirstPackage(), processName());
 
         bindLog(cl, pkg);
         if (PKG_MAPS.equals(pkg)) {
@@ -83,18 +83,25 @@ public class MainHook extends XposedModule {
         }
     }
 
-    /** True in the package's main process, so the log binds once and not in every child process. */
-    private static boolean isMainProcess(String pkg) {
+    static String processName() {
         try {
-            String proc = Application.getProcessName();
-            return proc == null || proc.equals(pkg);
-        } catch (Throwable t) {
-            return true;
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                String proc = Application.getProcessName();
+                if (proc != null && !proc.isEmpty()) return proc;
+            }
+        } catch (Throwable ignored) {
         }
+        return "unknown";
     }
 
-    // ---- Maps: bind the diagnostic log on Application.onCreate ----------------------------------
+    // ---- every hooked process: bind the diagnostic log on Application.onCreate ---------------
 
+    /**
+     * Binds the log in every process of the three packages, not only the main one: Timeline and
+     * location history run in GMS side processes (gms.persistent, gms.unstable, ...). The bind
+     * only fires for the process's own Application, so a package loaded into another app's
+     * process (GMS code inside Maps) keeps writing under the host process tag.
+     */
     private void bindLog(ClassLoader cl, String pkg) {
         try {
             Method onCreate = Application.class.getDeclaredMethod("onCreate");
@@ -102,19 +109,20 @@ public class MainHook extends XposedModule {
                 Object result = chain.proceed();
                 try {
                     Object self = chain.getThisObject();
-                    if (self instanceof Application) {
+                    if (self instanceof Application && !logBound) {
                         Context context = (Application) self;
-                        if (pkg.equals(context.getPackageName()) && isMainProcess(pkg)) {
+                        if (pkg.equals(context.getPackageName())) {
+                            logBound = true;
                             boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
-                            DiagLog.bind(context, on);
-                            if (PKG_MAPS.equals(pkg)) {
-                                reportTimelineClasses(context.getClassLoader());
-                            }
+                            DiagLog.bind(context, on, processName());
                             if (on) {
+                                DiagLog.line(header(context));
                                 for (String message : drainEarly()) DiagLog.line(message);
+                                if (PKG_MAPS.equals(pkg)) {
+                                    reportTimelineClasses(context.getClassLoader());
+                                    watchActivities();
+                                }
                             } else {
-                                // Off: release the startup buffer instead of holding it for the
-                                // process lifetime. Nothing will ever read it while off.
                                 drainEarly();
                             }
                         }
@@ -125,6 +133,61 @@ public class MainHook extends XposedModule {
             });
         } catch (Throwable t) {
             log("bind log failed: %s", t);
+        }
+    }
+
+    private volatile boolean logBound;
+
+    private static String header(Context context) {
+        String host = "?";
+        try {
+            android.content.pm.PackageInfo info =
+                    context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            host = info.versionName + " (" + info.getLongVersionCode() + ")";
+        } catch (Throwable ignored) {
+        }
+        return "header module=" + BuildConfig.VERSION_NAME + " host=" + context.getPackageName()
+                + " " + host + " sdk=" + android.os.Build.VERSION.SDK_INT
+                + " device=" + android.os.Build.MANUFACTURER + "/" + android.os.Build.MODEL
+                + " framework=" + ModuleRuntime.frameworkLine();
+    }
+
+    /**
+     * Maps only, log switch on only: one line per Activity create / new intent / resume with the
+     * intent action and data. This is how the log shows what a Timeline deep link actually
+     * delivered and which screen Maps put on top, without any dex scan.
+     */
+    private void watchActivities() {
+        try {
+            Class<?> activity = android.app.Activity.class;
+            hook(activity.getDeclaredMethod("onResume")).intercept(chain -> {
+                Object result = chain.proceed();
+                noteActivity("resume", chain.getThisObject(), null);
+                return result;
+            });
+            hook(activity.getDeclaredMethod("onNewIntent", android.content.Intent.class)).intercept(chain -> {
+                Object result = chain.proceed();
+                Object arg = chain.getArgs().isEmpty() ? null : chain.getArgs().get(0);
+                noteActivity("new-intent", chain.getThisObject(), arg);
+                return result;
+            });
+            log("activity watch armed");
+        } catch (Throwable t) {
+            log("activity watch failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    private void noteActivity(String kind, Object self, Object explicit) {
+        try {
+            if (!(self instanceof android.app.Activity)) return;
+            android.content.Intent intent = explicit instanceof android.content.Intent
+                    ? (android.content.Intent) explicit : ((android.app.Activity) self).getIntent();
+            log("activity %s %s %s", kind, self.getClass().getName(), ActivityLine.describe(
+                    intent == null ? null : intent.getAction(),
+                    intent == null ? null : intent.getDataString(),
+                    intent == null || intent.getComponent() == null ? null
+                            : intent.getComponent().getClassName()));
+        } catch (Throwable ignored) {
         }
     }
 
@@ -325,7 +388,11 @@ public class MainHook extends XposedModule {
                 try {
                     hook(method).intercept(chain -> {
                         Object result = chain.proceed();
-                        noteProbe(simple, method.getName(), result, "seen");
+                        // Name the property key / slot so "SystemProperties.get -> retcn" says which.
+                        Object first = chain.getArgs().isEmpty() ? null : chain.getArgs().get(0);
+                        String member = first instanceof String || first instanceof Integer
+                                ? method.getName() + "(" + first + ")" : method.getName();
+                        noteProbe(simple, member, result, "seen");
                         return result;
                     });
                     watched++;

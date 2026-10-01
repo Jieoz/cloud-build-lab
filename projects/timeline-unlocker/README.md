@@ -163,3 +163,18 @@ compensation would double-offset those locations.
    `hooked N overload(s) of TelephonyManager.getSimCountryIso -> us`.
    Failures are logged too; a `not found` message usually means the target
    app version changed — open an issue with the log output.
+4. Diagnostic log (off by default). Turn it on in the module app, reboot, then
+   reproduce. Every hooked process writes its own file:
+
+   ```text
+   Download/TimelineUnlocker/timeline-yyyyMMdd-maps.txt
+   Download/TimelineUnlocker/timeline-yyyyMMdd-gms.txt
+   Download/TimelineUnlocker/timeline-yyyyMMdd-gms.persistent.txt
+   ...
+   ```
+
+   Send all of them. Each file starts with a `header` line (module, host and
+   framework versions). The Maps file also records every Activity resume and
+   new intent, so a Timeline deep link shows up as
+   `activity ... action=VIEW data=https://www.google.com/maps/timeline`.
+   Every line is mirrored to the LSPosed module log as well.

@@ -83,7 +83,7 @@ public class LogExportActivity extends Activity {
                 ready,
                 ready && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_ON));
         body.setText(ready
-                ? "默认关闭。开关在地图「重新启动」时读取一次：改动后请强停地图再打开，日志出现在系统「下载」。"
+                ? "默认关闭。打开后请重启手机（地图和 Play 服务都要重新启动），复现后把「下载/TimelineUnlocker」里当天的全部 txt 一起发回：每个进程一个文件（maps、gms、gms.persistent…）。"
                 : "正在连接 LSPosed 框架…若长时间显示此状态，请确认模块已在 LSPosed 中激活。");
         if (!ready && retries < 10) {
             retries++;
@@ -107,7 +107,7 @@ public class LogExportActivity extends Activity {
         }
         Toast.makeText(this,
                 checked
-                        ? "已打开。请强停地图再重新打开，文件出现在系统「下载」。"
+                        ? "已打开。请重启手机，文件出现在系统「下载/TimelineUnlocker」。"
                         : "已关闭。地图下次重启后停止写。",
                 Toast.LENGTH_LONG).show();
     }
@@ -123,6 +123,7 @@ public class LogExportActivity extends Activity {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
                 startActivity(intent);
+                Toast.makeText(this, "已发给地图：" + link, Toast.LENGTH_SHORT).show();
                 return;
             } catch (Throwable ignored) {
             }

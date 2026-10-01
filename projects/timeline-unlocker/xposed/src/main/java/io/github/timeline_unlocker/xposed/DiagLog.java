@@ -25,17 +25,19 @@ import java.util.Locale;
  * Diagnostic log, off by default.
  *
  * <p>The switch value is read once — outside this class, from libxposed remote preferences
- * ({@link ModuleRuntime#switchOn}) — when the Maps process starts, and handed to {@link #bind}.
+ * ({@link ModuleRuntime#switchOn}) — when each hooked process starts, and handed to {@link #bind}.
  * There is no polling, no listener, no broadcast receiver, and no host-file read here.</p>
  *
  * <p><b>While OFF</b> (the default): {@link #line} does a single volatile read and returns. The
  * writer thread is never started, MediaStore is never queried, nothing is queued, nothing touches
  * disk. The log adds no wake-ups and no battery cost.</p>
  *
- * <p><b>While ON</b>: the hooked process appends UTF-8 lines to a single {@code text/plain} row in
- * the system Downloads collection
- * ({@code Download/TimelineUnlocker/timeline-yyyyMMdd.txt}) on one dedicated
- * background thread. Maps and GMS share that one file so the capture is a single document.</p>
+ * <p><b>While ON</b>: every hooked process (Maps, every GMS process, GSF) appends UTF-8 lines to
+ * its own {@code text/plain} row in the system Downloads collection
+ * ({@code Download/TimelineUnlocker/timeline-yyyyMMdd-<process>.txt}) on one background thread.
+ * One row per process because scoped storage only lets an app find rows it owns: a shared name
+ * made GMS miss the Maps row, so GMS lines never reached the file Jay sent. Every line is also
+ * mirrored to the LSPosed module log, which is readable even if a host cannot write Downloads.</p>
  */
 public final class DiagLog {
 
@@ -56,6 +58,7 @@ public final class DiagLog {
     private static volatile Context appContext;
     private static volatile Handler writer;    // created only when ON
     private static volatile Uri rowUri;
+    private static volatile String process = "module";
 
     private DiagLog() {}
 
@@ -68,7 +71,8 @@ public final class DiagLog {
      * Bind the hooked process with the switch value the caller already read once. When {@code on}
      * is false this returns after two field writes: no thread, no MediaStore query, no disk I/O.
      */
-    public static void bind(Context context, boolean on) {
+    public static void bind(Context context, boolean on, String processName) {
+        if (processName != null && !processName.isEmpty()) process = processName;
         appContext = context;
         enabled = on;
         if (!on) return;
@@ -78,14 +82,14 @@ public final class DiagLog {
     }
 
     public static String displayPath() {
-        return "Download/" + DIR_NAME + "/" + fileName();
+        return "Download/" + DIR_NAME + "/" + fileName(process);
     }
 
     public static void line(String message) {
         if (!enabled) return;
-        String pkg = appContext == null ? "module" : appContext.getPackageName();
-        String text = stamp() + " [" + pkg + "] "
-                + (message == null ? "" : message.replace('\n', ' ').replace('\r', ' '));
+        String body = message == null ? "" : message.replace('\n', ' ').replace('\r', ' ');
+        ModuleRuntime.frameworkLog("[" + process + "] " + body);
+        String text = stamp() + " [" + process + "] " + body;
         synchronized (LOCK) {
             if (pending.size() >= MAX_QUEUED) pending.remove(0);
             pending.add(text);
@@ -93,9 +97,22 @@ public final class DiagLog {
         flushAsync();
     }
 
-    static String fileName() {
+    static String fileName(String processName) {
         String day = new SimpleDateFormat("yyyyMMdd", Locale.US).format(new Date());
-        return "timeline-" + day + ".txt";
+        return "timeline-" + day + "-" + shortProcess(processName) + ".txt";
+    }
+
+    /** com.google.android.apps.maps -> maps, com.google.android.gms.persistent -> gms.persistent. */
+    static String shortProcess(String processName) {
+        String p = processName == null || processName.isEmpty() ? "module" : processName;
+        String[] prefixes = {"com.google.android.apps.", "com.google.android.", "com.google.process."};
+        for (String prefix : prefixes) {
+            if (p.startsWith(prefix) && p.length() > prefix.length()) {
+                p = p.substring(prefix.length());
+                break;
+            }
+        }
+        return safe(p.replace(':', '.'));
     }
 
     private static void flushAsync() {
@@ -146,7 +163,7 @@ public final class DiagLog {
         try {
             ContentResolver resolver = context.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
-            String name = fileName();
+            String name = fileName(process);
             String relative = Environment.DIRECTORY_DOWNLOADS + "/" + DIR_NAME + "/";
             Uri uri = rowUri != null ? rowUri : findRow(resolver, collection, relative, name);
             if (uri == null) {
@@ -177,7 +194,7 @@ public final class DiagLog {
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DIR_NAME);
             if (!dir.exists() && !dir.mkdirs()) return false;
             try (FileOutputStream fos = new FileOutputStream(
-                    new File(dir, fileName()), true)) {
+                    new File(dir, fileName(process)), true)) {
                 fos.write(bytes);
             }
             return true;

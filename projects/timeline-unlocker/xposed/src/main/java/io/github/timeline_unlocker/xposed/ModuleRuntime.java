@@ -49,6 +49,27 @@ public final class ModuleRuntime {
         framework = base;
     }
 
+    /** Mirror one line into the LSPosed module log (Manager -> Logs). Never throws. */
+    static void frameworkLog(String message) {
+        try {
+            XposedInterface base = framework;
+            if (base != null) base.log(android.util.Log.INFO, "TimelineUnlocker", message);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** "LSPosed 1.x (code)" for the log header; empty when not in a hooked process. */
+    static String frameworkLine() {
+        try {
+            XposedInterface base = framework;
+            if (base == null) return "";
+            return base.getFrameworkName() + " " + base.getFrameworkVersion()
+                    + " (" + base.getFrameworkVersionCode() + ") api=" + base.getApiVersion();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     /**
      * Read a boolean switch once from the host process. Defaults to false on any failure.
      * Uses the read-only hook interface.
