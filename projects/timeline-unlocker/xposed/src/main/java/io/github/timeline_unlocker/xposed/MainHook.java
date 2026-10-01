@@ -78,6 +78,13 @@ public class MainHook extends XposedModule {
             reloadListener = ModuleRuntime.watchKey(DiagLog.PREFS_NAME,
                     DiagLog.reloadKeyFor(processName()), prefs -> restartSelf());
         }
+        if (!param.isFirstPackage()) {
+            // Another app's code loaded into this process (log101: GMS code inside Maps). The
+            // telephony hooks are process-wide, so the GMS branch here would make Maps read us
+            // and drop its own live-dot correction. Hooks follow the process owner only.
+            log("skip %s inside %s: not the process owner, no hooks", pkg, processName());
+            return;
+        }
         boolean mapsMain = PKG_MAPS.equals(pkg) && param.isFirstPackage()
                 && PKG_MAPS.equals(processName());
         if (mapsMain) {
@@ -387,6 +394,10 @@ public class MainHook extends XposedModule {
                 noteActivity("resume", chain.getThisObject(), null);
                 return result;
             });
+            hook(activity.getDeclaredMethod("onPause")).intercept(chain -> {
+                if (chain.getThisObject() instanceof android.app.Activity) EntryWatch.endResume();
+                return chain.proceed();
+            });
             hook(activity.getDeclaredMethod("onNewIntent", android.content.Intent.class)).intercept(chain -> {
                 Object result = chain.proceed();
                 Object arg = chain.getArgs().isEmpty() ? null : chain.getArgs().get(0);
@@ -407,6 +418,7 @@ public class MainHook extends XposedModule {
      * depending on obfuscated class names.
      */
     private void scheduleEntryScan(android.app.Activity activity) {
+        final int resume = EntryWatch.beginResume();
         android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
         java.lang.ref.WeakReference<android.app.Activity> ref = new java.lang.ref.WeakReference<>(activity);
         for (long delay : SCAN_DELAYS_MS) {
@@ -421,8 +433,7 @@ public class MainHook extends XposedModule {
                     EntryScan.Result r = EntryScan.evaluate(texts);
                     log("entry scan %s t=%ds views=%d %s", a.getClass().getSimpleName(),
                             delay / 1000, views[0], r.line());
-                    EntryWatch.entry(r.found(), String.valueOf(r.hits),
-                            delay == SCAN_DELAYS_MS[SCAN_DELAYS_MS.length - 1]);
+                    EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0]);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }

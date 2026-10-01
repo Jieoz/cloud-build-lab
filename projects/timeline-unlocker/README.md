@@ -204,8 +204,16 @@ the Maps main process adds `watch` lines to its normal daily log; with the log
 off none of this runs.
 
 - `watch start identity=cn|us module=... last-entry=...`: every Maps launch.
-- `watch entry yes|no`: only when the on-screen entry state changes.
+- `watch entry yes|no`: only when the on-screen entry state changes. Judged per
+  Maps resume: `yes` when any scan of that resume shows the entry, `no` when the
+  resume ends after a real screen (100+ views) never showed it. Scans of a
+  backgrounded Maps (`views=1`) count for neither.
 - `watch config new|changed|gone <file> <size>@<mtime>`: Maps' own flag /
   experiment / prefs files that changed since the previous logged launch.
 - `watch read <method> -> <value> by <caller frames>`: each new
-  country/operator read of the day with the first app frames that made it.
+  country/operator read of the day (per module build) with the first app frames
+  that made it.
+
+Play services code that runs inside another app's process (for example GMS
+classes loaded into Maps) gets no hooks: the telephony hooks are process-wide,
+so they follow the process owner only, and Maps keeps reading its real SIM.

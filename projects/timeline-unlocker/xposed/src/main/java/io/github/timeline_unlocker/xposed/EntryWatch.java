@@ -45,6 +45,8 @@ final class EntryWatch {
 
     private static volatile Context context;
     private static volatile String identity = "?";
+    /** Caller dedupe is per day and per module build: a new build logs its callers again. */
+    private static volatile String module = "?";
     private static final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "timeline-unlocker-watch");
         t.setDaemon(true);
@@ -72,6 +74,7 @@ final class EntryWatch {
             context = app;
         }
         identity = mapsIdentity;
+        EntryWatch.module = module;
         io.execute(() -> {
             load();
             write("start identity=" + mapsIdentity + " module=" + module
@@ -87,22 +90,43 @@ final class EntryWatch {
         for (String[] r : queued) record(r[0], r[1], r[2]);
     }
 
-    private static volatile boolean seenThisLaunch;
+    private static final Object RESUME = new Object();
+    private static int resumeId;
+    private static final ResumeVerdict verdict = new ResumeVerdict();
 
-
-    /**
-     * One entry scan. {@code yes} is recorded the first time it is seen in a launch; {@code no}
-     * only after the last scan of a resume found nothing and nothing was seen this launch, so
-     * moving between screens does not flip the record. Either is written only on a change.
-     */
-    static void entry(boolean found, String hits, boolean lastScan) {
-        if (context == null || !DiagLog.isEnabled()) return;
-        if (found) {
-            if (seenThisLaunch) return;
-            seenThisLaunch = true;
-        } else if (!lastScan || seenThisLaunch) {
-            return;
+    /** A Maps activity resumed: close the previous resume, open a new one. Main thread. */
+    static int beginResume() {
+        synchronized (RESUME) {
+            endResumeLocked();
+            verdict.reset();
+            return ++resumeId;
         }
+    }
+
+    /** One entry scan of resume {@code id}. Scans of an older resume are ignored. */
+    static void scan(int id, boolean found, String hits, int views) {
+        if (context == null || !DiagLog.isEnabled()) return;
+        String out;
+        synchronized (RESUME) {
+            if (id != resumeId) return;
+            out = verdict.scan(found, hits, views);
+        }
+        if (out != null) recordEntry(true, out);
+    }
+
+    /** The activity paused: a resume whose screen never showed the entry records {@code no}. */
+    static void endResume() {
+        synchronized (RESUME) {
+            endResumeLocked();
+        }
+    }
+
+    private static void endResumeLocked() {
+        if (context == null || !DiagLog.isEnabled()) return;
+        if (verdict.end()) recordEntry(false, "");
+    }
+
+    private static void recordEntry(boolean found, String hits) {
         io.execute(() -> {
             load();
             String now = found ? "yes" : "no";
@@ -135,7 +159,7 @@ final class EntryWatch {
         io.execute(() -> {
             load();
             // Deduped per day: the refresh that drops the entry shows up on the day it happens.
-            String key = "c:" + day() + ":" + member + "=" + value + "@" + caller;
+            String key = callerPrefix() + member + "=" + value + "@" + caller;
             if (state.containsKey(key)) return;
             if (callerCount() >= MAX_CALLERS_PER_DAY) return;
             state.setProperty(key, stamp());
@@ -203,7 +227,7 @@ final class EntryWatch {
             state.load(in);
         } catch (Throwable ignored) {
         }
-        String today = "c:" + day() + ":";
+        String today = callerPrefix();
         for (String k : new HashSet<>(state.stringPropertyNames())) {
             if (k.startsWith("c:") && !k.startsWith(today)) state.remove(k);
         }
@@ -218,6 +242,10 @@ final class EntryWatch {
 
     private static void write(String line) {
         DiagLog.line("watch " + line);
+    }
+
+    private static String callerPrefix() {
+        return "c:" + day() + ":" + module + ":";
     }
 
     private static String day() {
