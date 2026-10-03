@@ -347,7 +347,6 @@ public class LogExportActivity extends Activity {
     }
     static final String[] TIMELINE_LINKS = {
             "https://www.google.com/maps/timeline",
-            "https://timeline.google.com/maps/timeline",
     };
 
     private void openDownloads() {

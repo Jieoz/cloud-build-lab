@@ -47,4 +47,16 @@ public class EntryScanTest {
         assertTrue(yes.found());
         assertTrue(yes.entryButton);
     }
+
+    @Test
+    public void summaryShowsFirstShortTextsAndCaps() {
+        String s = EntryScan.summary(Arrays.asList("搜索", "在这里输入或搜索地点", null, "  ",
+                "这条特别长超出二十四字符上限的文本不会被采纳进入摘要里", "你的时间轴"));
+        assertTrue(s.contains("搜索"));
+        assertTrue(s.contains("你的时间轴"));
+        assertFalse(s.contains("这条特别长"));
+        assertTrue(s.startsWith("["));
+        assertEquals("-", EntryScan.summary(new java.util.ArrayList<>()));
+        assertEquals("-", EntryScan.summary(Arrays.asList("  ", null)));
+    }
 }

@@ -43,8 +43,7 @@ final class OpenerRuntime {
     private static final long STARTUP_GRACE_MS = 60_000;
     /** Deep links inside Maps' own process, last in the ladder (same list as the module UI). */
     private static final String[] LINKS = {
-            "https://www.google.com/maps/timeline",
-            "https://timeline.google.com/maps/timeline"};
+            "https://www.google.com/maps/timeline"};
 
     private static volatile boolean armed;
     private static volatile Context context;

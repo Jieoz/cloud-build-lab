@@ -443,8 +443,8 @@ public class MainHook extends XposedModule {
                     int[] views = {0};
                     collectTexts(root, texts, views);
                     EntryScan.Result r = EntryScan.evaluate(texts);
-                    log("entry scan %s t=%ds views=%d %s", a.getClass().getSimpleName(),
-                            delay / 1000, views[0], r.line());
+                    log("entry scan %s t=%ds views=%d %s ui=%s", a.getClass().getSimpleName(),
+                            delay / 1000, views[0], r.line(), EntryScan.summary(texts));
                     EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0],
                             r.entryButton);
                     OpenerRuntime.onPageTexts(r.found(), views[0]);

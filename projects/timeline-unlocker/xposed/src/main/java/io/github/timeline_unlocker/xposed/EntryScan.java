@@ -77,4 +77,28 @@ final class EntryScan {
         }
         return distinct >= 2;
     }
+
+    /**
+     * A short readable digest of the first on-screen texts, so a log line tells home screen vs
+     * Timeline page vs onboarding sheet at a glance. Deterministic order, capped width.
+     */
+    static String summary(List<String> texts) {
+        if (texts == null || texts.isEmpty()) return "-";
+        StringBuilder sb = new StringBuilder("[");
+        int used = 0;
+        int taken = 0;
+        for (String raw : texts) {
+            if (raw == null) continue;
+            String t = raw.replace('\n', ' ').trim();
+            if (t.isEmpty() || t.length() > 24) continue;
+            if (taken > 0) sb.append('|');
+            sb.append(t);
+            used += t.length() + 1;
+            taken++;
+            if (taken >= 8 || used > 160) break;
+        }
+        if (taken == 0) return "-";
+        sb.append(']');
+        return sb.toString();
+    }
 }
