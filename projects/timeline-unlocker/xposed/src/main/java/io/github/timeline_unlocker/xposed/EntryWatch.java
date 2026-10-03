@@ -104,12 +104,12 @@ final class EntryWatch {
     }
 
     /** One entry scan of resume {@code id}. Scans of an older resume are ignored. */
-    static void scan(int id, boolean found, String hits, int views) {
+    static void scan(int id, boolean found, String hits, int views, boolean entryButton) {
         if (context == null || !DiagLog.isEnabled()) return;
         String out;
         synchronized (RESUME) {
             if (id != resumeId) return;
-            out = verdict.scan(found, hits, views);
+            out = verdict.scan(found && entryButton, hits, views);
         }
         if (out != null) recordEntry(true, out);
     }

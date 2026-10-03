@@ -65,6 +65,7 @@ final class OpenerRuntime {
     private static volatile String confirmedClass;
     private static volatile String confirmedMethod;
     private static volatile long wrapperSeenAt;
+    private static volatile long pageSeenAt;
     private static final AtomicInteger attempts = new AtomicInteger();
     private static volatile long stepStartedAt;
     private static volatile List<OpenerDriver.Step> pending;
@@ -173,6 +174,7 @@ final class OpenerRuntime {
         OpenerDriver.Step step = steps.get(index);
         stepStartedAt = System.currentTimeMillis();
         attempts.incrementAndGet();
+        pageSeenAt = 0; // only a sighting after this step began counts for it
         boolean invoked;
         try {
             invoked = execute(step);
@@ -184,7 +186,11 @@ final class OpenerRuntime {
         final long startedAt = stepStartedAt;
         main.postDelayed(() -> {
             boolean opened = OpenerDriver.confirms(attempts.get(), wrapperSeenAt, startedAt,
-                    CONFIRM_WINDOW_MS);
+                    CONFIRM_WINDOW_MS)
+                    // The deep link can land on the Timeline page without constructing
+                    // TimelineWrapper (observed 10-03): a page sighting confirms too.
+                    || OpenerDriver.confirms(attempts.get(), pageSeenAt, startedAt,
+                            CONFIRM_WINDOW_MS);
             DiagLog.line(OpenerDriver.verdict(step.describe(), opened));
             if (opened) {
                 pending = null;
@@ -193,6 +199,12 @@ final class OpenerRuntime {
             }
             runStep(index + 1);
         }, VERDICT_DELAY_MS);
+    }
+
+    /** MainHook's entry scan reports Timeline texts on screen; feeds link-step verdicts. */
+    static void onPageTexts(boolean timelineText, int views) {
+        if (!armed || !timelineText || views < ResumeVerdict.MIN_SCREEN_VIEWS) return;
+        pageSeenAt = System.currentTimeMillis();
     }
 
     private static boolean execute(OpenerDriver.Step step) {

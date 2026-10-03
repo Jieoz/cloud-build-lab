@@ -445,7 +445,9 @@ public class MainHook extends XposedModule {
                     EntryScan.Result r = EntryScan.evaluate(texts);
                     log("entry scan %s t=%ds views=%d %s", a.getClass().getSimpleName(),
                             delay / 1000, views[0], r.line());
-                    EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0]);
+                    EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0],
+                            r.entryButton);
+                    OpenerRuntime.onPageTexts(r.found(), views[0]);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }
