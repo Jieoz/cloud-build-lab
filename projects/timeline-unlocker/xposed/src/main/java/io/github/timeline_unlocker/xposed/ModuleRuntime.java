@@ -94,6 +94,17 @@ public final class ModuleRuntime {
         }
     }
 
+    /** Read a long by prefs name in the hooked process. Defaults to 0 on any failure. */
+    static long readLong(String prefsName, String key) {
+        try {
+            XposedInterface base = framework;
+            if (base == null) return 0;
+            return readLong(base.getRemotePreferences(prefsName), key);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** Callback for {@link #watchSwitch}. */
     interface SwitchListener {
         void onSwitch(boolean on);

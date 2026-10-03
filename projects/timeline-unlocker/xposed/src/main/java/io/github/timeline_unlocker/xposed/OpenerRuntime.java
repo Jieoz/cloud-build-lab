@@ -39,6 +39,8 @@ final class OpenerRuntime {
     private static final String KEY_ARGDUMP = "argdump";
     private static final long CONFIRM_WINDOW_MS = 4_000;
     private static final long VERDICT_DELAY_MS = 2_000;
+    /** A request written this recently is honored by a process that starts after it. */
+    private static final long STARTUP_GRACE_MS = 60_000;
     /** Deep links inside Maps' own process, last in the ladder (same list as the module UI). */
     private static final String[] LINKS = {
             "https://www.google.com/maps/timeline",
@@ -124,6 +126,17 @@ final class OpenerRuntime {
         android.os.Handler h = main;
         if (h == null) return;
         h.post(OpenerRuntime::runLadder);
+    }
+
+    /**
+     * Called once when the Maps process arms the opener: if the UI wrote a request while no
+     * process was alive (reload race), a fresh one is still honored instead of being lost.
+     */
+    static void consumeStartupRequest(long request) {
+        long now = System.currentTimeMillis();
+        if (!OpenerState.isFresh(now, request, STARTUP_GRACE_MS)) return;
+        DiagLog.line("opener startup request pending age_ms=" + (now - request));
+        onRequest(request);
     }
 
     // ---- ladder -----------------------------------------------------------------------------

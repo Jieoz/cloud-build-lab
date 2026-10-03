@@ -362,6 +362,10 @@ public class MainHook extends XposedModule {
             EntryWatch.start(context, mapsIdentity, BuildConfig.VERSION_NAME);
             // Capture/drive the timeline opener (wrapper ctor stack + open requests).
             OpenerRuntime.arm(context, this::hook);
+            // This process may have started after the UI wrote the request (reload race):
+            // consume a fresh unhandled request once at startup.
+            OpenerRuntime.consumeStartupRequest(
+                    ModuleRuntime.readLong(DiagLog.PREFS_NAME, DiagLog.KEY_OPEN_REQUEST));
         }
     }
 

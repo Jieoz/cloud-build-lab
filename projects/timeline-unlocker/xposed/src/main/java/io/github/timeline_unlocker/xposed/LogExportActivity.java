@@ -182,9 +182,10 @@ public class LogExportActivity extends Activity {
             DiagLog.line("open request sent (in-process opener)");
             Toast.makeText(this, "已请求地图打开时间轴（进程内）。", Toast.LENGTH_SHORT).show();
             main.postDelayed(() -> {
-                // No wrapper sighting will come from a dead Maps process; fall back to a link.
+                // The Maps process may still be starting (reload race): the request is not
+                // lost - it is consumed at its startup. Only a dead Maps falls back to links.
                 if (!isMapsRunning()) openViaLinks();
-            }, 2_500);
+            }, 10_000);
             return;
         }
         openViaLinks();

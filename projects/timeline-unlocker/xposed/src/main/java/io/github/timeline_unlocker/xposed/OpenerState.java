@@ -35,6 +35,11 @@ final class OpenerState {
         return count;
     }
 
+    /** True when the request is fresh enough for a just-starting process to still consume it. */
+    static boolean isFresh(long now, long request, long maxAgeMs) {
+        return request > 0 && now >= request && now - request <= maxAgeMs;
+    }
+
     /** Load helper shared with tests: read a long property, 0 when absent or malformed. */
     static long readLong(Properties state, String key) {
         String raw = state == null ? null : state.getProperty(key);
