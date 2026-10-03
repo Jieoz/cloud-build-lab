@@ -52,9 +52,11 @@ public final class DiagLog {
     public static final String KEY_MAPS_US = "maps_us";
     /** Long key inside {@link #PREFS_NAME}: a fresh timestamp asks Maps to open the Timeline. */
     public static final String KEY_OPEN_REQUEST = "open_request";
-    /** Long keys inside {@link #PREFS_NAME}: a new value asks that group's processes to restart. */
+    /** Long key inside {@link #PREFS_NAME}: a new value asks that group's processes to restart. */
     public static final String KEY_RELOAD_MAPS = "reload_maps";
     public static final String KEY_RELOAD_GMS = "reload_gms";
+    /** Boolean key: the entry keeper (snapshot/restore + gone-reminder). Off by default. */
+    public static final String KEY_KEEPER = "keeper";
 
     /** Maps' own processes follow the Maps button; every Play services / GSF process the other. */
     static String reloadKeyFor(String processName) {

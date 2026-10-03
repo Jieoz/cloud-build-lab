@@ -31,6 +31,7 @@ public class LogExportActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private Switch toggle;
     private Switch mapsUs;
+    private Switch keeper;
     private TextView body;
     private TextView status;
     private int retries;
@@ -67,6 +68,18 @@ public class LogExportActivity extends Activity {
         TextView mapsUsHint = text("关：地图读真实 SIM（cn），蓝点由地图自己校正，对齐。"
                 + "开：地图也读 us，模块代替地图做蓝点校正；切换后地图自动重新加载。", 13, "#9E9E9E");
         root.addView(mapsUsHint);
+
+        keeper = new Switch(this);
+        keeper.setText("时间轴守护（实验）");
+        keeper.setTextColor(Color.parseColor("#FFFFFF"));
+        keeper.setPadding(0, dp(12), 0, 0);
+        keeper.setOnCheckedChangeListener(this::onKeeper);
+        root.addView(keeper);
+        TextView keeperHint = text("开着的时候做两件事：① 入口可见时每天快照一次 Maps 的标志/实验文件到"
+                + "「下载/TimelineUnlocker/flags/」（清数据也删不掉），以后每次地图进程启动自动写回——"
+                + "验证「授权存在本地文件」：若成立，入口将不再每天消失，us+清数据从此不用再做；"
+                + "② cn 身份下入口消失时发一条通知，点通知直接打开时间轴页面。", 13, "#9E9E9E");
+        root.addView(keeperHint);
 
         body = text("", 15, "#E0E0E0");
         body.setPadding(0, dp(16), 0, dp(24));
@@ -126,6 +139,25 @@ public class LogExportActivity extends Activity {
         mapsUs.setEnabled(enabled);
         mapsUs.setChecked(enabled && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US));
         mapsUs.setOnCheckedChangeListener(this::onMapsUs);
+        keeper.setOnCheckedChangeListener(null);
+        keeper.setEnabled(enabled);
+        keeper.setChecked(enabled && ModuleRuntime.readSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_KEEPER));
+        keeper.setOnCheckedChangeListener(this::onKeeper);
+    }
+
+    /** The keeper switch is read per process start and per scan; no reload needed. */
+    private void onKeeper(CompoundButton button, boolean checked) {
+        if (!ModuleRuntime.writeSwitch(DiagLog.PREFS_NAME, DiagLog.KEY_KEEPER, checked)) {
+            button.setOnCheckedChangeListener(null);
+            button.setChecked(!checked);
+            button.setOnCheckedChangeListener(this::onKeeper);
+            Toast.makeText(this, "没写上，框架未连接或模块未激活。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        DiagLog.line("keeper set " + checked);
+        Toast.makeText(this, checked
+                ? "守护已开。趁入口还在时保持开启，快照每天自动更新。"
+                : "守护已关。", Toast.LENGTH_LONG).show();
     }
 
     /** Maps reads the identity once at start, so a change reloads Maps right away. */

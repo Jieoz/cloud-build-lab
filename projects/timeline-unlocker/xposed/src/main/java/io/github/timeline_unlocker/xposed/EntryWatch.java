@@ -92,6 +92,8 @@ final class EntryWatch {
 
     private static final Object RESUME = new Object();
     private static int resumeId;
+    /** True from a deep-link VIEW until that resume ends (its page keywords ≠ the home entry). */
+    private static volatile boolean linkResume;
     private static final ResumeVerdict verdict = new ResumeVerdict();
 
     /** A Maps activity resumed: close the previous resume, open a new one. Main thread. */
@@ -103,12 +105,23 @@ final class EntryWatch {
         }
     }
 
+    /** Records that this resume was started by the opener's own deep link. Main thread. */
+    static void markLinkResume() {
+        linkResume = true;
+    }
+
+    /** True while the current resume is the opener's own deep-link page (ledger must ignore). */
+    static boolean currentResumeIsLink() {
+        return linkResume;
+    }
+
     /** One entry scan of resume {@code id}. Scans of an older resume are ignored. */
     static void scan(int id, boolean found, String hits, int views, boolean entryButton) {
         if (context == null || !DiagLog.isEnabled()) return;
         String out;
         synchronized (RESUME) {
             if (id != resumeId) return;
+            if (linkResume) return; // deep-link page: its keywords must not count as the entry
             out = verdict.scan(found && entryButton, hits, views);
         }
         if (out != null) recordEntry(true, out);
@@ -123,6 +136,7 @@ final class EntryWatch {
 
     private static void endResumeLocked() {
         if (context == null || !DiagLog.isEnabled()) return;
+        linkResume = false;
         if (verdict.end()) recordEntry(false, "");
     }
 
@@ -178,7 +192,7 @@ final class EntryWatch {
     private static void configDiff() {
         File root = context.getDataDir();
         Map<String, String> now = new TreeMap<>();
-        scan(root, root, now, 0, new int[]{0});
+        collectTrackedFiles(root, now);
         Map<String, String> before = new TreeMap<>();
         for (String k : state.stringPropertyNames()) {
             if (k.startsWith("f:")) before.put(k.substring(2), state.getProperty(k));
@@ -193,6 +207,15 @@ final class EntryWatch {
             if (k.startsWith("f:")) state.remove(k);
         }
         for (Map.Entry<String, String> e : now.entrySet()) state.setProperty("f:" + e.getKey(), e.getValue());
+    }
+
+    /**
+     * Relative path -> "size@MMdd HH:mm" for every tracked file under {@code root}, same rule the
+     * config diff uses. Also the snapshot's source list (shared_prefs included here; the keeper
+     * decides separately what it will not restore).
+     */
+    static void collectTrackedFiles(File root, Map<String, String> out) {
+        scan(root, root, out, 0, new int[]{0});
     }
 
     private static void scan(File root, File dir, Map<String, String> out, int depth, int[] visited) {

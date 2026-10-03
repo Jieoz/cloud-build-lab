@@ -91,6 +91,9 @@ public class MainHook extends XposedModule {
             mapsIdentity = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US) ? "us" : "cn";
             // Only with the log on: startup reads are captured from the first one.
             if (ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON)) EntryWatch.arm();
+            // Keeper restore must land before Maps reads its flags: this is the earliest point
+            // with a Context. No-op unless the Application already exists here.
+            EntryKeeper.restoreEarly(currentApplication());
         }
         bindLog(cl, pkg);
         // The Application may already exist when the package is reported (GMS side processes);
@@ -362,6 +365,8 @@ public class MainHook extends XposedModule {
             EntryWatch.start(context, mapsIdentity, BuildConfig.VERSION_NAME);
             // Capture/drive the timeline opener (wrapper ctor stack + open requests).
             OpenerRuntime.arm(context, this::hook);
+            // The keeper: restore already ran (or runs now, if the Application came late).
+            EntryKeeper.arm(context);
             // This process may have started after the UI wrote the request (reload race):
             // consume a fresh unhandled request once at startup.
             OpenerRuntime.consumeStartupRequest(
@@ -443,11 +448,15 @@ public class MainHook extends XposedModule {
                     int[] views = {0};
                     collectTexts(root, texts, views);
                     EntryScan.Result r = EntryScan.evaluate(texts);
+                    boolean real = views[0] >= ResumeVerdict.MIN_SCREEN_VIEWS;
                     log("entry scan %s t=%ds views=%d %s ui=%s", a.getClass().getSimpleName(),
                             delay / 1000, views[0], r.line(), EntryScan.summary(texts));
                     EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0],
                             r.entryButton);
                     OpenerRuntime.onPageTexts(r.found(), views[0]);
+                    // The t=20s scan is the settled one; the keeper only trusts it.
+                    EntryKeeper.onScan(a, r.entryButton, real, delay == SCAN_DELAYS_MS[2],
+                            mapsIdentity);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }
@@ -477,6 +486,12 @@ public class MainHook extends XposedModule {
             if ("resume".equals(kind)) scheduleEntryScan((android.app.Activity) self);
             android.content.Intent intent = explicit instanceof android.content.Intent
                     ? (android.content.Intent) explicit : ((android.app.Activity) self).getIntent();
+            if (intent != null && "com.google.android.maps.MapsActivity"
+                    .equals(self.getClass().getName())
+                    && "https://www.google.com/maps/timeline".equals(intent.getDataString())) {
+                // The opener's own landing: its page keywords must not feed the entry ledger.
+                if ("new-intent".equals(kind) || "resume".equals(kind)) EntryWatch.markLinkResume();
+            }
             log("activity %s %s %s", kind, self.getClass().getName(), ActivityLine.describe(
                     intent == null ? null : intent.getAction(),
                     intent == null ? null : intent.getDataString(),
