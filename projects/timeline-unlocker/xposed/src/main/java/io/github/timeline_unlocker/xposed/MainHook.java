@@ -267,11 +267,16 @@ public class MainHook extends XposedModule {
         logContext = app;
         logPkg = pkg;
         boolean on = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON);
-        ModuleRuntime.frameworkLog("[" + processName() + "] bound log=" + on);
 
         applySwitch(on);
         switchListener = ModuleRuntime.watchSwitch(
                 DiagLog.PREFS_NAME, DiagLog.KEY_ON, this::applySwitch);
+        if (PKG_MAPS.equals(logPkg) && PKG_MAPS.equals(processName())) {
+            // The module UI's "在地图中打开时间轴" button: a fresh timestamp is one open request.
+            openerRequestListener = ModuleRuntime.watchKey(DiagLog.PREFS_NAME, DiagLog.KEY_OPEN_REQUEST,
+                    prefs -> OpenerRuntime.onRequest(
+                            ModuleRuntime.readLong(prefs, DiagLog.KEY_OPEN_REQUEST)));
+        }
     }
 
     /**
@@ -355,6 +360,8 @@ public class MainHook extends XposedModule {
         if (PKG_MAPS.equals(logPkg) && PKG_MAPS.equals(processName())) {
             EntryWatch.arm();
             EntryWatch.start(context, mapsIdentity, BuildConfig.VERSION_NAME);
+            // Capture/drive the timeline opener (wrapper ctor stack + open requests).
+            OpenerRuntime.arm(context, this::hook);
         }
     }
 
@@ -364,6 +371,7 @@ public class MainHook extends XposedModule {
     private volatile String mapsIdentity = "?";
     /** Strong reference: some frameworks keep listeners weakly. */
     private Object switchListener;
+    private volatile Object openerRequestListener;
     private volatile Object reloadListener;
     private volatile boolean logBound;
 
@@ -531,6 +539,8 @@ public class MainHook extends XposedModule {
                 hook(ctor).intercept(chain -> {
                     timelineOpened = true;
                     noteProbe("ctor", binary, "new", "opened");
+                    // Feed the opener capture: the construction stack names the veneer method.
+                    OpenerRuntime.onWrapperConstructed(new Throwable().getStackTrace());
                     return chain.proceed();
                 });
             }

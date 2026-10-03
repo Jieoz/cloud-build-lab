@@ -85,6 +85,15 @@ public final class ModuleRuntime {
         }
     }
 
+    /** Read a long from an already-open remote prefs object. Defaults to 0 on any failure. */
+    static long readLong(SharedPreferences prefs, String key) {
+        try {
+            return prefs.getLong(key, 0);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     /** Callback for {@link #watchSwitch}. */
     interface SwitchListener {
         void onSwitch(boolean on);
@@ -167,6 +176,21 @@ public final class ModuleRuntime {
             if (bound == null) return false;
             SharedPreferences prefs = bound.getRemotePreferences(prefsName);
             return prefs.getBoolean(key, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Write a fresh open-request timestamp; Maps consumes it once and runs the opener ladder
+     * (captured veneer method first, deep links last). Returns false only when the write failed.
+     */
+    public static boolean requestOpen(String prefsName, String key) {
+        try {
+            XposedService bound = service;
+            if (bound == null) return false;
+            SharedPreferences prefs = bound.getRemotePreferences(prefsName);
+            return prefs.edit().putLong(key, System.currentTimeMillis()).commit();
         } catch (Throwable t) {
             return false;
         }

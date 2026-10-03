@@ -173,10 +173,32 @@ public class LogExportActivity extends Activity {
     }
 
     /**
-     * Opens Timeline through a Maps deep link instead of relying on the in-app entry, which the
-     * server can hide on any given day. Tried in order; the first link Maps accepts wins.
+     * Opens Timeline in Maps. Direct first: the in-process opener (veneer method capture / deep
+     * links, judged by the TimelineWrapper sighting). The plain VIEW deep link stays as the
+     * fallback for when Maps is not running the current build yet.
      */
     private void openTimeline() {
+        if (ModuleRuntime.requestOpen(DiagLog.PREFS_NAME, DiagLog.KEY_OPEN_REQUEST)) {
+            DiagLog.line("open request sent (in-process opener)");
+            Toast.makeText(this, "已请求地图打开时间轴（进程内）。", Toast.LENGTH_SHORT).show();
+            main.postDelayed(() -> {
+                // No wrapper sighting will come from a dead Maps process; fall back to a link.
+                if (!isMapsRunning()) openViaLinks();
+            }, 2_500);
+            return;
+        }
+        openViaLinks();
+    }
+
+    private boolean isMapsRunning() {
+        for (ModuleRuntime.Target t : ModuleRuntime.runningTargets()) {
+            if (t.process.startsWith(MAPS)) return true;
+        }
+        return false;
+    }
+
+    /** Plain VIEW deep links; the first one Maps accepts wins. */
+    private void openViaLinks() {
         for (String link : TIMELINE_LINKS) {
             Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))
                     .setPackage(MAPS)
