@@ -154,21 +154,26 @@ final class EntryKeeper {
     }
 
     /**
-     * One entry-scan result. Real screens only; the t=20s scan decides (transitional earlier
-     * scans say nothing). Entry seen → maybe snapshot; entry gone under cn → maybe notify.
+     * One entry-scan result. The settled t=20s scan of a real screen decides, and only while
+     * its resume is still current — a scan scheduled by a resume that was since replaced must
+     * not judge (10-04 06:42: the 20s scan of the home resume fired after the deep link had
+     * already taken over the activity). Entry seen → maybe snapshot; entry gone under cn →
+     * maybe notify. A deep-link landing on the real Timeline page is filtered upstream
+     * (EntryWatch); a link landing back on the home counts as a home (10-04 06:42:05).
      */
     static void onScan(Context act, boolean entryButton, boolean realScreen, boolean finalScan,
-                       String identity) {
-        if (!armed || !DiagLog.isEnabled() || !switchOn() || !realScreen || !finalScan) return;
+                       int resume, String identity) {
+        if (!armed || !DiagLog.isEnabled() || !switchOn() || !realScreen || !finalScan
+                || !EntryWatch.resumeIsCurrent(resume)) return;
         Context app = context != null ? context : act.getApplicationContext();
         if (app == null) return;
-        if (EntryWatch.currentResumeIsLink()) return; // the deep link's own page, not the home
         final boolean seen = entryButton;
         io.execute(() -> {
             load();
-            String today = KeeperPolicy.dayStamp(System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+            String today = KeeperPolicy.dayStamp(now);
             if (seen) {
-                if (!KeeperPolicy.shouldSnapshot(prop(KEY_SNAP_DAY), System.currentTimeMillis())) return;
+                if (!KeeperPolicy.shouldSnapshot(prop(KEY_SNAP_DAY), now)) return; // once/day
                 int files = snapshot(app);
                 if (files > 0) {
                     state.setProperty(KEY_SNAP_DAY, today);
@@ -177,7 +182,6 @@ final class EntryKeeper {
                 return;
             }
             if (!"cn".equals(identity)) return;
-            long now = System.currentTimeMillis();
             long manual = ModuleRuntime.readLong(DiagLog.PREFS_NAME, DiagLog.KEY_OPEN_REQUEST);
             KeeperPolicy.Decision d = KeeperPolicy.autoOpen(false, true, identity, now,
                     prop(KEY_OPEN_DAY), manual);

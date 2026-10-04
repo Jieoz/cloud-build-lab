@@ -49,6 +49,23 @@ public class EntryScanTest {
     }
 
     @Test
+    public void realHomesFromDeviceLogsBothCountAsEntry() {
+        // 10-03 19:48 home: card + title + legacy account words.
+        EntryScan.Result old = EntryScan.evaluate(Arrays.asList(
+                "开车前往家 · 7.2 公里", "家 · 7.2 公里", "搜索“加油站”、“自动取款机”",
+                "语音搜索", "账号和设置。", "我", "通知", "您保存的地点",
+                "基于您的时间轴", "查看时间轴", "时间轴"));
+        assertTrue(old.found());
+        assertTrue(old.entryButton);
+        // 10-04 06:41 home: redesigned card, no 我/账号/设置 words on screen at all.
+        EntryScan.Result redesigned = EntryScan.evaluate(Arrays.asList(
+                "开车前往家 · 7.3 公里", "家 · 7.3 公里", "在此处搜索", "语音搜索",
+                "基于您的时间轴", "查看时间轴", "时间轴"));
+        assertTrue(redesigned.found());
+        assertTrue(redesigned.entryButton);
+    }
+
+    @Test
     public void summaryShowsFirstShortTextsAndCaps() {
         String s = EntryScan.summary(Arrays.asList("搜索", "在这里输入或搜索地点", null, "  ",
                 "这条特别长超出二十四字符上限的文本不会被采纳进入摘要里", "你的时间轴"));

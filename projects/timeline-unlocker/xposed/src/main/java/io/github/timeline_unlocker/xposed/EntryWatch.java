@@ -92,8 +92,9 @@ final class EntryWatch {
 
     private static final Object RESUME = new Object();
     private static int resumeId;
-    /** True from a deep-link VIEW until that resume ends (its page keywords ≠ the home entry). */
-    private static volatile boolean linkResume;
+    /** The resume that is the opener's own deep-link page, 0 when none. Per resume: the old
+     * boolean leaked across resumes and silenced every later home scan (10-04 06:42). */
+    private static int linkResumeId;
     private static final ResumeVerdict verdict = new ResumeVerdict();
 
     /** A Maps activity resumed: close the previous resume, open a new one. Main thread. */
@@ -101,18 +102,23 @@ final class EntryWatch {
         synchronized (RESUME) {
             endResumeLocked();
             verdict.reset();
+            linkResumeId = 0;
             return ++resumeId;
         }
     }
 
-    /** Records that this resume was started by the opener's own deep link. Main thread. */
+    /** Records that the current resume is the opener's own deep-link page. Main thread. */
     static void markLinkResume() {
-        linkResume = true;
+        synchronized (RESUME) {
+            linkResumeId = resumeId;
+        }
     }
 
-    /** True while the current resume is the opener's own deep-link page (ledger must ignore). */
-    static boolean currentResumeIsLink() {
-        return linkResume;
+    /** True when {@code id} is still the current resume (its scans decide, older ones don't). */
+    static boolean resumeIsCurrent(int id) {
+        synchronized (RESUME) {
+            return id == resumeId;
+        }
     }
 
     /** One entry scan of resume {@code id}. Scans of an older resume are ignored. */
@@ -121,8 +127,11 @@ final class EntryWatch {
         String out;
         synchronized (RESUME) {
             if (id != resumeId) return;
-            if (linkResume) return; // deep-link page: its keywords must not count as the entry
-            out = verdict.scan(found && entryButton, hits, views);
+            // The link's own timeline page (keywords but no button group): says nothing either
+            // way. A link resume that landed on the home (10-04 06:42) must still record no.
+            if (found && !entryButton && id == linkResumeId) return;
+            boolean ledgerHit = found && entryButton && id != linkResumeId;
+            out = verdict.scan(ledgerHit, hits, views);
         }
         if (out != null) recordEntry(true, out);
     }
@@ -136,7 +145,6 @@ final class EntryWatch {
 
     private static void endResumeLocked() {
         if (context == null || !DiagLog.isEnabled()) return;
-        linkResume = false;
         if (verdict.end()) recordEntry(false, "");
     }
 
