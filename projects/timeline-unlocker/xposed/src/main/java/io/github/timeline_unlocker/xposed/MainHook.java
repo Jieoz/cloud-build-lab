@@ -457,7 +457,7 @@ public class MainHook extends XposedModule {
                     // Keeper: dialog on screen = authorized on sight (any scan age);
                     // otherwise only settled scans (8s, 20s) judge.
                     EntryKeeper.onScan(a, r.entryButton, real, (int) (delay / 1000),
-                            r.timelineDialog, resume, mapsIdentity);
+                            r.timelineDialog, r.found(), resume, mapsIdentity);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }

@@ -37,6 +37,19 @@ public class KeeperTest {
     }
 
     @Test
+    public void manifestAcceptsZeroByteRows() {
+        // ~80 no_backup_flags_b* rows are 0-byte files whose existence is the meaning; the
+        // restore loop must treat size=0 as valid data (10-05: bytes[0] AIOOB on empty rows
+        // killed the whole restore before a single file was written).
+        StringBuilder rel = new StringBuilder();
+        long[] size = KeeperCodec.parseManifest(
+                "no_backup_flags_b123|no_backup/flags/b123|0", rel);
+        assertTrue(size != null);
+        assertEquals(0L, size[0]);
+        assertEquals("no_backup/flags/b123", rel.toString());
+    }
+
+    @Test
     public void settledScansAreEightSecondsAndLater() {
         // 4.20 shipped final-scan-only by mistake: with 8-10s visits the 20s scan never fired
         // and the keeper never judged (10-03/10-04 logs). 8s and 20s settle, 2s is transitional.

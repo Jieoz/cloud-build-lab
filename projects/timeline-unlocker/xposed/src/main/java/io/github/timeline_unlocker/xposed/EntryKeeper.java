@@ -139,12 +139,16 @@ final class EntryKeeper {
                     skipped++;
                     continue;
                 }
-                String[] bytes = readRow(app, KeeperCodec.encodeName(path));
-                if (bytes == null) {
+                // Raw bytes, not lines: ~80 no_backup_flags_b* rows are empty files whose
+                // existence is the meaning, and phenotype pb rows are binary — both were
+                // destroyed by the line-splitting read (bytes[0] AIOOB killed the whole
+                // restore on 10-05 06:16/07:04 before a single file was written).
+                byte[] data = readRowBytes(app, KeeperCodec.encodeName(path));
+                if (data == null) {
                     failed++;
                     continue;
                 }
-                if (writePrivate(app, path, bytes[0].getBytes(StandardCharsets.ISO_8859_1))) ok++;
+                if (writePrivate(app, path, data)) ok++;
                 else failed++;
             }
             say("keeper restored files=" + ok + " skipped_prefs=" + skipped + " failed=" + failed);
@@ -158,11 +162,13 @@ final class EntryKeeper {
      * its resume is still current — a scan scheduled by a resume that was since replaced must
      * not judge (10-04 06:42: the 20s scan of the home resume fired after the deep link had
      * already taken over the activity). Entry seen → maybe snapshot; entry gone under cn →
-     * maybe notify. A deep-link landing on the real Timeline page is filtered upstream
-     * (EntryWatch); a link landing back on the home counts as a home (10-04 06:42:05).
+     * maybe notify. Gone means no Timeline keyword at all on a settled scan: a keyword without
+     * the button group is a partial render (10-05 07:04:22 hits=[基于您的时间轴] alone, full
+     * card set 40s later) and decides nothing. A deep-link landing on the real Timeline page
+     * is filtered upstream (EntryWatch); a link landing back on the home counts as a home.
      */
     static void onScan(Context act, boolean entryButton, boolean realScreen, int scanSeconds,
-                       boolean timelineDialog, int resume, String identity) {
+                       boolean timelineDialog, boolean anyHit, int resume, String identity) {
         if (!armed || !DiagLog.isEnabled() || !switchOn() || !realScreen
                 || !EntryWatch.resumeIsCurrent(resume)) return;
         // The dialog itself is the authorization proof: snapshot on sight, any scan age.
@@ -185,6 +191,10 @@ final class EntryKeeper {
                 return;
             }
             if (!"cn".equals(identity)) return;
+            if (anyHit) {
+                say("keeper notify suppressed: keyword still on screen");
+                return;
+            }
             long manual = ModuleRuntime.readLong(DiagLog.PREFS_NAME, DiagLog.KEY_OPEN_REQUEST);
             KeeperPolicy.Decision d = KeeperPolicy.autoOpen(false, true, identity, now,
                     prop(KEY_OPEN_DAY), manual);
@@ -322,6 +332,17 @@ final class EntryKeeper {
 
     /** Whole-row read; null when the row is missing. One-row files only (snapshot sized). */
     private static String[] readRow(Context app, String name) {
+        byte[] raw = readRowBytes(app, name);
+        if (raw == null) return null;
+        List<String> lines = new ArrayList<>();
+        for (String l : new String(raw, StandardCharsets.UTF_8).split("\n")) {
+            if (!l.trim().isEmpty()) lines.add(l);
+        }
+        return lines.toArray(new String[0]);
+    }
+
+    /** Full raw payload of a Download row; null when missing/unreadable. */
+    private static byte[] readRowBytes(Context app, String name) {
         InputStream in = null;
         try {
             Uri uri = findRow(app, name);
@@ -332,12 +353,7 @@ final class EntryKeeper {
             byte[] chunk = new byte[8192];
             int n;
             while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
-            String text = new String(buf.toByteArray(), StandardCharsets.UTF_8);
-            List<String> lines = new ArrayList<>();
-            for (String l : text.split("\n")) {
-                if (!l.trim().isEmpty()) lines.add(l);
-            }
-            return lines.toArray(new String[0]);
+            return buf.toByteArray();
         } catch (Throwable t) {
             return null;
         } finally {
