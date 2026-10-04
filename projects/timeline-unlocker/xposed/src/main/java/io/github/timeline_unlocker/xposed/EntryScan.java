@@ -25,10 +25,13 @@ final class EntryScan {
     static final class Result {
         final List<String> hits;
         final boolean entryButton;
+        /** Keyword present + close control + no button group: the Timeline dialog itself. */
+        final boolean timelineDialog;
 
-        Result(List<String> hits, boolean entryButton) {
+        Result(List<String> hits, boolean entryButton, boolean timelineDialog) {
             this.hits = hits;
             this.entryButton = entryButton;
+            this.timelineDialog = timelineDialog;
         }
 
         boolean found() {
@@ -54,7 +57,23 @@ final class EntryScan {
             }
             if (hits.size() >= MAX_HITS) break;
         }
-        return new Result(new ArrayList<>(hits), isEntryButton(new ArrayList<>(hits)));
+        boolean entry = isEntryButton(new ArrayList<>(hits));
+        return new Result(new ArrayList<>(hits), entry, !entry && hasCloseControl(texts));
+    }
+
+    /**
+     * Exact-text close controls. The Timeline dialog carries a bare 「关闭」 button
+     * (10-04 13:40:27 ui=[时间轴|关闭]) — the dialog being on screen is hard proof the feature
+     * is authorized, even when the home card is not. Checked against all on-screen texts
+     * because the control's own text holds no Timeline keyword.
+     */
+    static boolean hasCloseControl(List<String> texts) {
+        for (String raw : texts) {
+            if (raw == null) continue;
+            String t = raw.trim().toLowerCase(Locale.ROOT);
+            if (t.equals("关闭") || t.equals("關閉") || t.equals("close")) return true;
+        }
+        return false;
     }
 
     /**

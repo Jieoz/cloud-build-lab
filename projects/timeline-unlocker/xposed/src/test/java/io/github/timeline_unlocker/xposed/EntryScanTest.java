@@ -66,6 +66,24 @@ public class EntryScanTest {
     }
 
     @Test
+    public void timelineDialogIsKeywordPlusCloseWithoutButtonGroup() {
+        // 10-04 13:40:27 cn switch-back: the dialog itself proved authorization (ui=[时间轴|关闭]).
+        EntryScan.Result dialog = EntryScan.evaluate(Arrays.asList("时间轴", "关闭"));
+        assertTrue(dialog.found());
+        assertFalse(dialog.entryButton);
+        assertTrue(dialog.timelineDialog);
+        // The home entry card wins even if a close control is also present.
+        EntryScan.Result home = EntryScan.evaluate(
+                Arrays.asList("基于您的时间轴", "浏览时间轴", "关闭"));
+        assertTrue(home.entryButton);
+        assertFalse(home.timelineDialog);
+        // 10-03 09:25 deep-link page: bare title, no close control — not the dialog.
+        EntryScan.Result page = EntryScan.evaluate(Arrays.asList("搜索", "时间轴", "导航"));
+        assertTrue(page.found());
+        assertFalse(page.timelineDialog);
+    }
+
+    @Test
     public void summaryShowsFirstShortTextsAndCaps() {
         String s = EntryScan.summary(Arrays.asList("搜索", "在这里输入或搜索地点", null, "  ",
                 "这条特别长超出二十四字符上限的文本不会被采纳进入摘要里", "你的时间轴"));

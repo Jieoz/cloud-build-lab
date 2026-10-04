@@ -454,9 +454,10 @@ public class MainHook extends XposedModule {
                     EntryWatch.scan(resume, r.found(), String.valueOf(r.hits), views[0],
                             r.entryButton);
                     OpenerRuntime.onPageTexts(r.found(), views[0]);
-                    // Settled scans (8s, 20s) judge for the keeper; the 2s scan is transitional.
+                    // Keeper: dialog on screen = authorized on sight (any scan age);
+                    // otherwise only settled scans (8s, 20s) judge.
                     EntryKeeper.onScan(a, r.entryButton, real, (int) (delay / 1000),
-                            resume, mapsIdentity);
+                            r.timelineDialog, resume, mapsIdentity);
                 } catch (Throwable t) {
                     log("entry scan failed: %s", t.getClass().getSimpleName());
                 }
