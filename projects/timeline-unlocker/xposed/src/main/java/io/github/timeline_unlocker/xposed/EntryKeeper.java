@@ -161,14 +161,16 @@ final class EntryKeeper {
      * maybe notify. A deep-link landing on the real Timeline page is filtered upstream
      * (EntryWatch); a link landing back on the home counts as a home (10-04 06:42:05).
      */
-    static void onScan(Context act, boolean entryButton, boolean realScreen, boolean finalScan,
+    static void onScan(Context act, boolean entryButton, boolean realScreen, int scanSeconds,
                        int resume, String identity) {
-        if (!armed || !DiagLog.isEnabled() || !switchOn() || !realScreen || !finalScan
+        if (!armed || !DiagLog.isEnabled() || !switchOn() || !realScreen
+                || !KeeperPolicy.isSettled(scanSeconds)
                 || !EntryWatch.resumeIsCurrent(resume)) return;
         Context app = context != null ? context : act.getApplicationContext();
         if (app == null) return;
         final boolean seen = entryButton;
         io.execute(() -> {
+            if (!EntryWatch.resumeIsCurrent(resume)) return; // replaced while queued
             load();
             long now = System.currentTimeMillis();
             String today = KeeperPolicy.dayStamp(now);

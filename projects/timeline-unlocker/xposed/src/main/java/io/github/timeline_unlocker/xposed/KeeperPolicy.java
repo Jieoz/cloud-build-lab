@@ -44,6 +44,17 @@ final class KeeperPolicy {
      * @param lastOpenDay day stamp (yyyyMMdd) of the previous automatic open, or empty
      * @param manualAt    timestamp of the newest manual open request, 0 when none
      */
+    /** Seconds of residence a scan must represent before it decides for the keeper. */
+    static final int SETTLED_MIN_SECONDS = 8;
+
+    /** True when a scan has enough residence to judge: 8s and the 20s scan. The 2s scan is
+     * transitional (entry still flying in); everything later is a settled screen. 4.20 shipped
+     * "final-scan only" by mistake — with Jay's 8-10s visits the 20s scan never fired and the
+     * keeper never judged (10-03/10-04 logs). */
+    static boolean isSettled(int scanSeconds) {
+        return scanSeconds >= SETTLED_MIN_SECONDS;
+    }
+
     static Decision autoOpen(boolean entryButton, boolean realScreen, String identity, long now,
                              String lastOpenDay, long manualAt) {
         if (entryButton) return Decision.no("entry present");

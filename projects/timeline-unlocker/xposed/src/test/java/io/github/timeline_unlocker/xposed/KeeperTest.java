@@ -37,6 +37,15 @@ public class KeeperTest {
     }
 
     @Test
+    public void settledScansAreEightSecondsAndLater() {
+        // 4.20 shipped final-scan-only by mistake: with 8-10s visits the 20s scan never fired
+        // and the keeper never judged (10-03/10-04 logs). 8s and 20s settle, 2s is transitional.
+        assertFalse(KeeperPolicy.isSettled(2));
+        assertTrue(KeeperPolicy.isSettled(8));
+        assertTrue(KeeperPolicy.isSettled(20));
+    }
+
+    @Test
     public void snapshotOncePerDay() {
         assertTrue(KeeperPolicy.shouldSnapshot("", NOW));
         assertTrue(KeeperPolicy.shouldSnapshot(null, NOW));
