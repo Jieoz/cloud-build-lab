@@ -46,6 +46,11 @@ final class EntryKeeper {
     private static final String STATE = "timeline-unlocker-keeper.properties";
     private static final String KEY_OPEN_DAY = "open_day";
     private static final String KEY_SNAP_DAY = "snapshot_day";
+    /** Set once a snapshot lands; a data clear deletes it with everything else. */
+    private static final String KEY_HAVE_SNAP = "have_snapshot";
+    /** name -> MediaStore row, so restarts reuse the same row instead of spawning "(1)" copies. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, android.net.Uri> rowCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private static final String FLAG_DIR = "flags";
     private static final int MAX_FILES = 400;
     private static final int MAX_BYTES_PER_FILE = 4_000_000;
@@ -75,7 +80,9 @@ final class EntryKeeper {
             load();
             drainEarly();
             // onPackageReady ran before the switch was readable/on: retry the restore here.
-            if (!restored.getAndSet(true)) restore(context);
+            if (!restored.getAndSet(true)) {
+                if (!restore(context)) scheduleRestoreRetries(context);
+            }
         });
     }
 
@@ -109,6 +116,11 @@ final class EntryKeeper {
      * already exists, and once more from {@link #arm} otherwise — whichever comes first wins.
      * Synchronous on purpose (the caller is already off the main thread there); the file set is
      * small flag/phenotype blobs.
+     *
+     * <p>The immediate attempt lands inside the process-start blind window (10-05 clear-data:
+     * MediaStore exact queries return no rows for the first seconds — snapshot wrote 106 rows at
+     * +19s fine, restores at +30ms/+55s after restart saw none, and the log row itself spawned a
+     * "(1)" copy). So a failed attempt schedules quiet retries on the retry executor.</p>
      */
     static void restoreEarly(Context app) {
         if (app == null || !restored.compareAndSet(false, true)) return;
@@ -117,15 +129,45 @@ final class EntryKeeper {
             restored.set(false); // a later arm() with the switch on can still do it
             return;
         }
-        restore(app);
+        if (!restore(app)) scheduleRestoreRetries(app);
     }
 
-    private static void restore(Context app) {
+    private static final long[] RETRY_DELAYS_MS = {5_000, 20_000};
+    private static final ExecutorService retry = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "timeline-unlocker-keeper-retry");
+        t.setDaemon(true);
+        return t;
+    });
+    private static final AtomicBoolean restoreDone = new AtomicBoolean();
+
+    private static void scheduleRestoreRetries(Context app) {
+        load();
+        if (restoreDone.get()) return;
+        if (prop(KEY_HAVE_SNAP).isEmpty()) {
+            restoreDone.set(true); // nothing upstream was ever snapshotted: no rows will appear
+            return;
+        }
+        final Context a = app;
+        retry.execute(() -> {
+            for (long delay : RETRY_DELAYS_MS) {
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+                if (restoreDone.get()) return;
+                if (restore(a)) return;
+            }
+        });
+    }
+
+    /** @return true when this attempt is final (restored, or nothing retryable left). */
+    private static boolean restore(Context app) {
         try {
             String[] manifest = readRow(app, KeeperCodec.MANIFEST_NAME);
             if (manifest == null) {
                 say("keeper restore: no manifest yet");
-                return;
+                return false; // blind window may still hide the rows: retry
             }
             StringBuilder rel = new StringBuilder();
             int ok = 0;
@@ -152,8 +194,14 @@ final class EntryKeeper {
                 else failed++;
             }
             say("keeper restored files=" + ok + " skipped_prefs=" + skipped + " failed=" + failed);
+            // A pass where every payload read failed is a blind-window signature, not a done
+            // deal — leave room for the retry ladder.
+            if (ok == 0 && failed > 0 && skipped == 0) return false;
+            restoreDone.set(true);
+            return true;
         } catch (Throwable t) {
             say("keeper restore failed: " + t.getClass().getSimpleName());
+            return true; // a crashing path must not spin on the ladder
         }
     }
 
@@ -186,6 +234,10 @@ final class EntryKeeper {
                 int files = snapshot(app);
                 if (files > 0) {
                     state.setProperty(KEY_SNAP_DAY, today);
+                    // Marks upstream data as snapshot-covered: after a Maps data clear this
+                    // key dies with everything else, so a cleared device knows no rows exist
+                    // and the restore ladder doesn't wait on rows that will never appear.
+                    state.setProperty(KEY_HAVE_SNAP, today);
                     save();
                 }
                 return;
@@ -279,6 +331,8 @@ final class EntryKeeper {
     }
 
     private static Uri findRow(Context app, String name) {
+        Uri cached = rowCache.get(name);
+        if (cached != null) return cached;
         try {
             android.content.ContentResolver resolver = app.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
@@ -291,7 +345,9 @@ final class EntryKeeper {
             if (cursor == null) return null;
             try {
                 if (!cursor.moveToFirst()) return null;
-                return android.content.ContentUris.withAppendedId(collection, cursor.getLong(0));
+                Uri uri = android.content.ContentUris.withAppendedId(collection, cursor.getLong(0));
+                rowCache.put(name, uri);
+                return uri;
             } finally {
                 cursor.close();
             }
@@ -305,6 +361,10 @@ final class EntryKeeper {
         try {
             android.content.ContentResolver resolver = app.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+            // Re-query before every insert: a no-row answer can be the process-start blind
+            // window (10-05 clear-data: MediaStore rows are invisible to exact queries for the
+            // first seconds), and trusting it spawns "(1)" duplicate rows the export then
+            // delivers twice.
             Uri uri = findRow(app, name);
             if (uri == null) {
                 android.content.ContentValues values = new android.content.ContentValues();
@@ -312,6 +372,7 @@ final class EntryKeeper {
                 values.put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
                 values.put(MediaStore.MediaColumns.RELATIVE_PATH, flagsRelativePath());
                 uri = resolver.insert(collection, values);
+                if (uri != null) rowCache.put(name, uri);
             }
             if (uri == null) return false;
             out = resolver.openOutputStream(uri, "w");
