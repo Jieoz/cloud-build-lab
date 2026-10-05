@@ -1,10 +1,8 @@
 package com.jieoz.ctsshare;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.Application;
 import android.content.ClipData;
-import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -27,8 +25,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
-import android.window.OnBackInvokedCallback;
-import android.window.OnBackInvokedDispatcher;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Button;
@@ -49,7 +45,6 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -80,11 +75,6 @@ public final class ShareBootstrap {
     private static Field cachedActiveRegionField;
     private static final ArrayList<File> pendingShareFiles = new ArrayList<>();
     private static long lastPreDrawProbe;
-    private static int sourceTaskId = -1;
-    private static int currentCtsTaskId = -1;
-    private static WeakReference<Activity> newlyCreatedCtsActivity = new WeakReference<>(null);
-    private static WeakReference<Activity> backCallbackActivity = new WeakReference<>(null);
-    private static OnBackInvokedCallback backCallback;
     private static WeakReference<Application> debugApplication = new WeakReference<>(null);
     private static String regionProbeState = "not-probed";
     private static String lastDebugState = "";
@@ -1001,88 +991,6 @@ public final class ShareBootstrap {
         debugLog(message);
     }
 
-    private static void rememberSourceTask(Activity activity) {
-        try {
-            ActivityManager manager = (ActivityManager)
-                    activity.getSystemService(Context.ACTIVITY_SERVICE);
-            if (manager == null) return;
-            int ctsTaskId = activity.getTaskId();
-            List<ActivityManager.RunningTaskInfo> tasks = manager.getRunningTasks(12);
-            for (ActivityManager.RunningTaskInfo task : tasks) {
-                int taskId = task.taskId;
-                if (taskId >= 0 && taskId != ctsTaskId && !isCtsTask(task)) {
-                    sourceTaskId = taskId;
-                    Log.i(TAG, "Remembered source task=" + sourceTaskId);
-                    return;
-                }
-            }
-            sourceTaskId = -1;
-            Log.w(TAG, "No source task found behind CTS task=" + ctsTaskId);
-        } catch (Throwable error) {
-            sourceTaskId = -1;
-            Log.e(TAG, "Unable to remember source task", error);
-        }
-    }
-
-    private static boolean isCtsTask(ActivityManager.RunningTaskInfo task) {
-        ComponentName component = task.topActivity != null ? task.topActivity : task.baseActivity;
-        if (component == null) return false;
-        String name = component.getClassName().toLowerCase(Locale.US);
-        return name.contains("omnient") ||
-                name.contains("contextualsearch") ||
-                name.contains("lensient");
-    }
-
-    private static void returnToSource(Activity activity) {
-        int targetTaskId = sourceTaskId;
-        boolean restored = false;
-        try {
-            ActivityManager manager = (ActivityManager)
-                    activity.getSystemService(Context.ACTIVITY_SERVICE);
-            if (manager != null && targetTaskId >= 0) {
-                manager.moveTaskToFront(targetTaskId, 0);
-                restored = true;
-            }
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to restore source task=" + targetTaskId, error);
-        }
-        if (!restored) {
-            restored = activity.moveTaskToBack(true);
-        }
-        sourceTaskId = -1;
-        currentCtsTaskId = -1;
-        Log.i(TAG, "Returned to source task=" + targetTaskId
-                + " restored=" + restored);
-    }
-
-    private static void installBackCallback(Activity activity) {
-        if (Build.VERSION.SDK_INT < 33 || backCallbackActivity.get() == activity) return;
-        clearBackCallback();
-        try {
-            OnBackInvokedCallback callback = () -> returnToSource(activity);
-            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                    OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback);
-            backCallback = callback;
-            backCallbackActivity = new WeakReference<>(activity);
-            Log.i(TAG, "CTS back callback registered");
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to register CTS back callback", error);
-        }
-    }
-
-    private static void clearBackCallback() {
-        Activity activity = backCallbackActivity.get();
-        OnBackInvokedCallback callback = backCallback;
-        backCallbackActivity = new WeakReference<>(null);
-        backCallback = null;
-        if (Build.VERSION.SDK_INT < 33 || activity == null || callback == null) return;
-        try {
-            activity.getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(callback);
-        } catch (Throwable error) {
-            Log.w(TAG, "Unable to unregister CTS back callback", error);
-        }
-    }
-
     private static void handleCtsActivityResumed(Activity activity, boolean recovered) {
         Activity previous = currentActivity.get();
         if (previous != activity) {
@@ -1090,33 +998,20 @@ public final class ShareBootstrap {
             actionRowMissingSince = 0L;
         }
         currentActivity = new WeakReference<>(activity);
-        int taskId = activity.getTaskId();
-        boolean newCtsLaunch = newlyCreatedCtsActivity.get() == activity;
-        if (newCtsLaunch) newlyCreatedCtsActivity = new WeakReference<>(null);
-        if (sourceTaskId < 0 || newCtsLaunch) {
-            currentCtsTaskId = taskId;
-            int previousSourceTaskId = sourceTaskId;
-            rememberSourceTask(activity);
-            if (newCtsLaunch && previousSourceTaskId >= 0) {
-                Log.i(TAG, "New CTS launch replaced source task="
-                        + previousSourceTaskId + " with task=" + sourceTaskId);
-            }
-        } else if (taskId != currentCtsTaskId) {
-            currentCtsTaskId = taskId;
-            Log.i(TAG, "CTS task changed; preserved source task=" + sourceTaskId);
-        }
-        installBackCallback(activity);
+        // No back interception on purpose. Upstream (Entermage) registered an
+        // overlay-priority back callback that force-switched back to the source task,
+        // which makes the system play its cross-task slide animation instead of
+        // Google's own collapse. Leaving Google's back handling untouched keeps the
+        // native dismissal; the system back stack already returns to the source app.
         installPreDrawGuard(activity);
         Log.i(TAG, "CTS candidate resumed: " + activity.getClass().getName());
         debugLog("activity bound class=" + activity.getClass().getName()
-                + " task=" + taskId + " source=" + sourceTaskId
-                + " newLaunch=" + newCtsLaunch + " recovered=" + recovered);
+                + " recovered=" + recovered);
     }
 
     private static final class Callbacks implements Application.ActivityLifecycleCallbacks {
         @Override public void onActivityCreated(Activity activity, Bundle state) {
             if (isCtsActivity(activity) && state == null) {
-                newlyCreatedCtsActivity = new WeakReference<>(activity);
                 debugLog("activity created class=" + activity.getClass().getName()
                         + " task=" + activity.getTaskId() + " fresh=true");
             } else if (isCtsActivity(activity)) {
@@ -1148,7 +1043,6 @@ public final class ShareBootstrap {
                 debugLog("activity destroyed class=" + activity.getClass().getName()
                         + " task=" + activity.getTaskId());
             }
-            if (backCallbackActivity.get() == activity) clearBackCallback();
             Activity current = currentActivity.get();
             if (current == activity) {
                 removeButton(activity);

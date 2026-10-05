@@ -12,6 +12,10 @@ LSPosed 模块：给 Google 圈选即搜（Circle to Search）恢复选区的“
 只注入 `com.google.android.googlequicksearchbox:googleapp` 进程，在 `Application.onCreate` 之后调用
 `ShareBootstrap.init`。
 
+与上游的差异：去掉上游的返回键接管（overlay 优先级 back callback + 切回来源任务）。
+该接管会把系统返回变成跨任务切换动画（整页侧滑出屏）；移除后返回走 Google 自己的收起动画，
+与未装模块时一致。
+
 ## 要求
 
 - Android 11+，LSPosed 2.x（libxposed API 102）
