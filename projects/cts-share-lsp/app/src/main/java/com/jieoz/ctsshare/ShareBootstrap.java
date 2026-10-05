@@ -6,11 +6,15 @@ import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,6 +23,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.PixelCopy;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
@@ -41,6 +47,8 @@ import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
@@ -51,6 +59,7 @@ public final class ShareBootstrap {
     private static final String BUTTON_TAG = "cts_share_zygisk_button";
     private static final long MAX_IMAGE_AGE_MS = 120_000L;
     private static final long POLL_MS = 100L;
+    private static final long FALLBACK_DELAY_MS = 48L;
     private static final long CACHE_FILE_TTL_MS = 10 * 60_000L;
     private static final long DEBUG_LOG_FILE_BYTES = 32 * 1024L;
     private static final long DEBUG_STATE_MIN_INTERVAL_MS = 250L;
@@ -60,6 +69,25 @@ public final class ShareBootstrap {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
     private static Bitmap currentSelection;
+    private static long actionRowMissingSince;
+    // Appearance of the last native row button seen this process, so the
+    // standalone share button can wear exactly the same style (Jay: the
+    // fallback must look identical to the row buttons).
+    private static Drawable cachedNativeBackground;
+    private static ColorStateList cachedNativeBackgroundTint;
+    private static ColorStateList cachedNativeTextColors;
+    private static float cachedNativeTextSize;
+    private static Typeface cachedNativeTypeface;
+    private static int cachedNativePaddingStart;
+    private static int cachedNativePaddingTop;
+    private static int cachedNativePaddingEnd;
+    private static int cachedNativePaddingBottom;
+    private static int cachedNativeMinHeight;
+    private static float cachedNativeElevation;
+    private static boolean cachedNativeAppearanceValid;
+    // True only while handling a tap on the standalone (fallback) button;
+    // the image then comes from a PixelCopy of the live selection region.
+    private static boolean shareViaRegionFallback;
     private static WeakReference<View> observedRoot = new WeakReference<>(null);
     private static ViewTreeObserver.OnPreDrawListener preDrawListener;
     private static Class<?> cachedRegionViewClass;
@@ -259,6 +287,7 @@ public final class ShareBootstrap {
                 (ViewGroup) actionRowView : null;
         TextView reference = findNativeActionReference(actionRow);
         if (reference != null && activeRegion == null) {
+            actionRowMissingSince = 0L;
             currentSelection = null;
             if (existingInjected != null &&
                     existingInjected.getParent() instanceof ViewGroup) {
@@ -267,6 +296,7 @@ public final class ShareBootstrap {
             return;
         }
         if (actionRow != null && reference != null) {
+            actionRowMissingSince = 0L;
             if (existingInjected != null && existingInjected.getParent() == actionRow) {
                 keepNativeActionMenuOnScreen(activity, actionRow);
                 return;
@@ -304,8 +334,43 @@ public final class ShareBootstrap {
             existingInjected = null;
         }
 
-        // No standalone fallback (Jay decision, 0.2.4): when Google omits its
-        // action row there is no verified image source, so no share button.
+        if (existingInjected != null) {
+            keepStandaloneShareOnScreen(activity, existingInjected);
+            return;
+        }
+
+        // Google omits the action row when no text action applies (image-only
+        // selections). The share button still shows there, styled exactly like
+        // the native row buttons via the cached appearance. Its image comes
+        // from a PixelCopy of the live selection region, never from remembered
+        // or stale sources (0.2.5).
+        long now = System.currentTimeMillis();
+        if (actionRowMissingSince == 0L) actionRowMissingSince = now;
+        if (now - actionRowMissingSince < FALLBACK_DELAY_MS) return;
+        if (activeRegion == null) {
+            // No live selection geometry: nothing shareable to offer.
+            removeButton(activity);
+            return;
+        }
+        TextView button = new TextView(activity);
+        button.setTag(BUTTON_TAG);
+        button.setText(shareLabel());
+        applyCachedFallbackAppearance(activity, button);
+        button.setContentDescription(shareLabel());
+        button.setOnClickListener(view -> {
+            shareViaRegionFallback = true;
+            shareLatest(activity, button);
+        });
+
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        params.topMargin = statusBarHeight(activity) + dp(activity, 92);
+        root.addView(button, params);
+        button.post(() -> keepStandaloneShareOnScreen(activity, button));
+        Log.i(TAG, "Share button added to " + activity.getClass().getName());
+        debugLog("standalone share button added region=" + rectText(activeRegion));
     }
 
     private static TextView findNativeActionReference(ViewGroup actionRow) {
@@ -635,6 +700,7 @@ public final class ShareBootstrap {
     }
 
     private static void copyButtonAppearance(TextView source, Button target) {
+        cacheNativeAppearance(source);
         Drawable background = source.getBackground();
         if (background != null && background.getConstantState() != null) {
             target.setBackground(background.getConstantState().newDrawable().mutate());
@@ -661,7 +727,96 @@ public final class ShareBootstrap {
         target.setFocusable(true);
     }
 
+    private static void cacheNativeAppearance(TextView source) {
+        Drawable background = source.getBackground();
+        cachedNativeBackground =
+                background != null && background.getConstantState() != null ?
+                background.getConstantState().newDrawable().mutate() : background;
+        cachedNativeBackgroundTint = source.getBackgroundTintList();
+        cachedNativeTextColors = source.getTextColors();
+        cachedNativeTextSize = source.getTextSize();
+        cachedNativeTypeface = source.getTypeface();
+        cachedNativePaddingStart = source.getPaddingStart();
+        cachedNativePaddingTop = source.getPaddingTop();
+        cachedNativePaddingEnd = source.getPaddingEnd();
+        cachedNativePaddingBottom = source.getPaddingBottom();
+        cachedNativeMinHeight = source.getMinimumHeight();
+        cachedNativeElevation = source.getElevation();
+        cachedNativeAppearanceValid = true;
+    }
+
+    // The standalone button must match the native row buttons. Use the cached
+    // native appearance when one was seen this process; otherwise a white
+    // Google-style button so the fallback never regresses to the old dark pill.
+    private static void applyCachedFallbackAppearance(Activity activity, TextView target) {
+        if (cachedNativeAppearanceValid) {
+            target.setBackground(cachedNativeBackground != null &&
+                    cachedNativeBackground.getConstantState() != null ?
+                    cachedNativeBackground.getConstantState().newDrawable().mutate() :
+                    cachedNativeBackground);
+            target.setBackgroundTintList(cachedNativeBackgroundTint);
+            target.setTextColor(cachedNativeTextColors);
+            target.setTextSize(TypedValue.COMPLEX_UNIT_PX, cachedNativeTextSize);
+            target.setTypeface(cachedNativeTypeface);
+            target.setGravity(Gravity.CENTER);
+            target.setIncludeFontPadding(true);
+            target.setPaddingRelative(cachedNativePaddingStart, cachedNativePaddingTop,
+                    cachedNativePaddingEnd, cachedNativePaddingBottom);
+            target.setMinWidth(0);
+            target.setMinimumWidth(0);
+            target.setMinHeight(cachedNativeMinHeight);
+            target.setMinimumHeight(cachedNativeMinHeight);
+            target.setElevation(cachedNativeElevation);
+            target.setAllCaps(false);
+            return;
+        }
+        target.setTextColor(Color.rgb(32, 33, 36));
+        target.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        target.setGravity(Gravity.CENTER);
+        target.setElevation(dp(activity, 8));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(activity, 24));
+        target.setBackground(background);
+        target.setPaddingRelative(dp(activity, 18), 0, dp(activity, 18), 0);
+        target.setMinimumHeight(dp(activity, 44));
+        target.setAllCaps(false);
+    }
+
+    private static void keepStandaloneShareOnScreen(Activity activity, View button) {
+        try {
+            if (!(button.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
+            View root = activity.getWindow().getDecorView();
+            int[] rootLocation = new int[2];
+            root.getLocationOnScreen(rootLocation);
+            int[] buttonLocation = new int[2];
+            button.getLocationOnScreen(buttonLocation);
+            int width = button.getWidth();
+            if (width <= 0) return;
+            int safeLeft = rootLocation[0] + dp(activity, 8);
+            int safeRight = rootLocation[0] + root.getWidth() - dp(activity, 8);
+            int left = buttonLocation[0];
+            int right = left + width;
+            float shift = 0f;
+            if (right > safeRight) {
+                shift = safeRight - right;
+            } else if (left < safeLeft) {
+                shift = safeLeft - left;
+            }
+            if (shift != 0f) button.setTranslationX(button.getTranslationX() + shift);
+        } catch (Throwable error) {
+            Log.e(TAG, "Unable to keep standalone share on screen", error);
+        }
+    }
+
+    private static int statusBarHeight(Activity activity) {
+        int id = activity.getResources().getIdentifier(
+                "status_bar_height", "dimen", "android");
+        return id == 0 ? 0 : activity.getResources().getDimensionPixelSize(id);
+    }
+
     private static void removeButton(Activity activity) {
+        actionRowMissingSince = 0L;
         ViewGroup root = (ViewGroup) activity.getWindow().getDecorView();
         View button = root.findViewWithTag(BUTTON_TAG);
         if (button != null && button.getParent() instanceof ViewGroup) {
@@ -671,18 +826,20 @@ public final class ShareBootstrap {
     }
 
     private static void shareLatest(Activity activity, TextView button) {
+        boolean viaRegionFallback = shareViaRegionFallback;
+        shareViaRegionFallback = false;
         Bitmap selected = selectedBitmap(activity);
-        if (selected == null && currentSelection != null && !currentSelection.isRecycled()) {
-            selected = currentSelection;
-        }
-        File image = latestLensImage(activity);
         debugLog("share clicked bitmap=" + bitmapText(selected)
-                + " lens=" + fileText(image) + " region={" + regionProbeState + "}");
-        if (selected == null && image == null) {
+                + " fallback=" + viaRegionFallback
+                + " region={" + regionProbeState + "}");
+        if (selected == null && !viaRegionFallback) {
             debugLog("share rejected: no image");
             Toast.makeText(activity, noImageLabel(), Toast.LENGTH_SHORT).show();
             return;
         }
+        // Region geometry must be read on MAIN before the worker starts.
+        final Rect captureRegion = viaRegionFallback ?
+                selectedRegionOnScreen(activity) : null;
         Bitmap stableBitmap = null;
         if (selected != null) {
             try {
@@ -690,15 +847,24 @@ public final class ShareBootstrap {
             } catch (Throwable error) {
                 Log.e(TAG, "Unable to copy selected bitmap", error);
             }
+            if (stableBitmap == null && captureRegion == null) {
+                debugLog("share rejected: copy failed without region fallback");
+                Toast.makeText(activity, shareFailedLabel(), Toast.LENGTH_SHORT).show();
+                return;
+            }
         }
-        final Bitmap bitmapToShare = stableBitmap;
-        final File fileToShare = image;
+        final Bitmap verifiedBitmap = stableBitmap;
         button.setEnabled(false);
         new Thread(() -> {
-            Uri uri = bitmapToShare != null ?
-                    copyBitmapToCache(activity, bitmapToShare) :
-                    copyToCache(activity, fileToShare);
-            if (bitmapToShare != null) bitmapToShare.recycle();
+            // Fallback image = fresh PixelCopy of the CURRENT selection region,
+            // bound to what is on screen right now. Remembered bitmaps and
+            // LensImages files belong to earlier selections and are never used.
+            Bitmap source = verifiedBitmap;
+            if (source == null && captureRegion != null) {
+                source = pixelCopyRegion(activity, captureRegion);
+            }
+            Uri uri = source != null ? copyBitmapToCache(activity, source) : null;
+            if (source != null) source.recycle();
             MAIN.post(() -> {
                 button.setEnabled(true);
                 if (uri == null || activity.isFinishing()) {
@@ -707,16 +873,14 @@ public final class ShareBootstrap {
                     Toast.makeText(activity, shareFailedLabel(), Toast.LENGTH_SHORT).show();
                     return;
                 }
-                String mime = bitmapToShare != null ? "image/jpeg" :
-                        mimeType(fileToShare.getName());
                 Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType(mime);
+                send.setType("image/jpeg");
                 send.putExtra(Intent.EXTRA_STREAM, uri);
                 send.setClipData(ClipData.newUri(activity.getContentResolver(), "CTS image", uri));
                 send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 try {
                     activity.startActivity(Intent.createChooser(send, shareLabel()));
-                    debugLog("system sharesheet started mime=" + mime);
+                    debugLog("system sharesheet started mime=image/jpeg");
                 } catch (Throwable error) {
                     Log.e(TAG, "Unable to open sharesheet", error);
                     Toast.makeText(activity, shareFailedLabel(), Toast.LENGTH_SHORT).show();
@@ -724,6 +888,35 @@ public final class ShareBootstrap {
                 }
             });
         }, "CTSShareCopy").start();
+    }
+
+    // PixelCopy delivers on the given handler; requesting from a worker thread
+    // and awaiting a latch there is safe. Region geometry was read on MAIN.
+    private static Bitmap pixelCopyRegion(Activity activity, Rect region) {
+        Bitmap output = Bitmap.createBitmap(region.width(), region.height(),
+                Bitmap.Config.ARGB_8888);
+        try {
+            final Bitmap[] holder = new Bitmap[1];
+            final CountDownLatch done = new CountDownLatch(1);
+            PixelCopy.request(activity.getWindow(), region, output, status -> {
+                holder[0] = status == PixelCopy.SUCCESS ? output : null;
+                if (status != PixelCopy.SUCCESS) output.recycle();
+                done.countDown();
+            }, MAIN);
+            if (!done.await(2, TimeUnit.SECONDS)) {
+                output.recycle();
+                debugLog("pixel copy timed out region=" + region.flattenToString());
+                return null;
+            }
+            if (holder[0] == null) {
+                debugLog("pixel copy failed region=" + region.flattenToString());
+            }
+            return holder[0];
+        } catch (Throwable error) {
+            Log.e(TAG, "PixelCopy of selection region failed", error);
+            output.recycle();
+            return null;
+        }
     }
 
     private static Uri copyBitmapToCache(Activity activity, Bitmap bitmap) {
@@ -747,26 +940,6 @@ public final class ShareBootstrap {
         }
     }
 
-    private static Uri copyToCache(Activity activity, File source) {
-        String extension = extension(source.getName());
-        File file = newCacheFile(activity, "." + extension);
-        if (file == null) return null;
-        try {
-            try (InputStream input = new FileInputStream(source);
-                 OutputStream output = new FileOutputStream(file)) {
-                byte[] buffer = new byte[64 * 1024];
-                int count;
-                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
-            }
-            Uri uri = cacheUri(activity, file);
-            rememberTemporaryFile(file);
-            return uri;
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to cache image for sharing", error);
-            file.delete();
-            return null;
-        }
-    }
 
     private static File newCacheFile(Context context, String suffix) {
         try {
@@ -826,12 +999,6 @@ public final class ShareBootstrap {
         return "jpg";
     }
 
-    private static String mimeType(String name) {
-        String extension = extension(name);
-        if ("png".equals(extension)) return "image/png";
-        if ("webp".equals(extension)) return "image/webp";
-        return "image/jpeg";
-    }
 
     private static String shareLabel() {
         String language = Locale.getDefault().getLanguage();

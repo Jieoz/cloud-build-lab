@@ -12,7 +12,7 @@ LSPosed 模块：给 Google 圈选即搜（Circle to Search）恢复选区的“
 只注入 `com.google.android.googlequicksearchbox:googleapp` 进程，在 `Application.onCreate` 之后调用
 `ShareBootstrap.init`。
 
-与上游的差异：去掉上游的返回键接管（overlay 优先级 back callback + 切回来源任务），恢复官方返回收起动画；去掉原生按钮行缺失时的自绘兜底分享按钮，只在原生按钮行存在时注入（该兜底场景拿不到已验证的当前截图，容易分享到旧图）。
+与上游的差异：去掉上游的返回键接管（overlay 优先级 back callback + 切回来源任务），恢复官方返回收起动画。原生按钮行缺失（纯图选区）时的兜底分享按钮保留，但外观与原生按钮一致（进程内缓存的原生样式，未见原生行时白底），图片来源改为按当前选区实时 PixelCopy 屏幕区域，不再使用记忆中的上次选区或 LensImages 旧文件（杜绝分享到旧图）。
 该接管会把系统返回变成跨任务切换动画（整页侧滑出屏）；移除后返回走 Google 自己的收起动画，
 与未装模块时一致。
 
