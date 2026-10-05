@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.res.Configuration;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -71,6 +72,9 @@ public final class ShareBootstrap {
     // True only while handling a tap on the standalone (fallback) button;
     // the image then comes from a PixelCopy of the live selection region.
     private static boolean shareViaRegionFallback;
+    // Night mode the standalone fallback was last painted for; lets a live
+    // theme flip restyle the existing button without recreating it (0.2.8).
+    private static Boolean fallbackStyledDark;
     private static WeakReference<View> observedRoot = new WeakReference<>(null);
     private static ViewTreeObserver.OnPreDrawListener preDrawListener;
     private static Class<?> cachedRegionViewClass;
@@ -318,6 +322,13 @@ public final class ShareBootstrap {
         }
 
         if (existingInjected != null) {
+            // Google may declare uiMode in configChanges and skip recreation,
+            // so a live theme flip must restyle the standing button here (0.2.8).
+            if (existingInjected instanceof TextView
+                    && fallbackStyledDark != null
+                    && fallbackStyledDark.booleanValue() != isDarkTheme(activity)) {
+                applyFallbackAppearance(activity, (TextView) existingInjected);
+            }
             positionStandaloneShare(activity, existingInjected);
             return;
         }
@@ -719,21 +730,33 @@ public final class ShareBootstrap {
 
     // The standalone button appears only where Google omits its action row
     // (image-only selections), so there is no native button to match there.
-    // Keep it deterministic: always the white Google-style pill. It must NOT
-    // inherit styles remembered from earlier text-selection sessions — that
-    // made the button's look depend on sampling history (0.2.7).
+    // Styling must be deterministic and history-free (0.2.7: sampling the
+    // native row made the look depend on earlier text selections), but it
+    // follows the host's CURRENT theme: light = white pill with Google grey
+    // text, dark = Google dark-surface pill with light text (0.2.8).
     private static void applyFallbackAppearance(Activity activity, TextView target) {
-        target.setTextColor(Color.rgb(32, 33, 36));
+        boolean dark = isDarkTheme(activity);
+        target.setTextColor(dark ? Color.rgb(232, 234, 237) : Color.rgb(32, 33, 36));
         target.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         target.setGravity(Gravity.CENTER);
         target.setElevation(dp(activity, 8));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(dark ? Color.rgb(48, 49, 52) : Color.WHITE);
         background.setCornerRadius(dp(activity, 24));
         target.setBackground(background);
         target.setPaddingRelative(dp(activity, 18), 0, dp(activity, 18), 0);
         target.setMinimumHeight(dp(activity, 44));
         target.setAllCaps(false);
+        fallbackStyledDark = dark;
+        debugLog("fallback styled dark=" + dark);
+    }
+
+    // The HOST app's effective night mode (its own theme setting and
+    // battery-saver overrides already folded in), not the raw system one.
+    private static boolean isDarkTheme(Activity activity) {
+        int mode = activity.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        return mode == Configuration.UI_MODE_NIGHT_YES;
     }
 
     private static int statusBarHeight(Activity activity) {

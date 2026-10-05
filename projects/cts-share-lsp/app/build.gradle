@@ -11,8 +11,8 @@ android {
         applicationId "com.jieoz.ctsshare"
         minSdk 30
         targetSdk 35
-        versionCode 9
-        versionName "0.2.7"
+        versionCode 10
+        versionName "0.2.8"
     }
 
     def keystorePath = System.getenv("PGP_KEYSTORE_PATH")
