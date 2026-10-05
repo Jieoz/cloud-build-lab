@@ -6,13 +6,11 @@ import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,7 +19,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.TypedValue;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
@@ -54,7 +51,6 @@ public final class ShareBootstrap {
     private static final String BUTTON_TAG = "cts_share_zygisk_button";
     private static final long MAX_IMAGE_AGE_MS = 120_000L;
     private static final long POLL_MS = 100L;
-    private static final long FALLBACK_DELAY_MS = 48L;
     private static final long CACHE_FILE_TTL_MS = 10 * 60_000L;
     private static final long DEBUG_LOG_FILE_BYTES = 32 * 1024L;
     private static final long DEBUG_STATE_MIN_INTERVAL_MS = 250L;
@@ -64,7 +60,6 @@ public final class ShareBootstrap {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
     private static Bitmap currentSelection;
-    private static long actionRowMissingSince;
     private static WeakReference<View> observedRoot = new WeakReference<>(null);
     private static ViewTreeObserver.OnPreDrawListener preDrawListener;
     private static Class<?> cachedRegionViewClass;
@@ -264,7 +259,6 @@ public final class ShareBootstrap {
                 (ViewGroup) actionRowView : null;
         TextView reference = findNativeActionReference(actionRow);
         if (reference != null && activeRegion == null) {
-            actionRowMissingSince = 0L;
             currentSelection = null;
             if (existingInjected != null &&
                     existingInjected.getParent() instanceof ViewGroup) {
@@ -273,7 +267,6 @@ public final class ShareBootstrap {
             return;
         }
         if (actionRow != null && reference != null) {
-            actionRowMissingSince = 0L;
             if (existingInjected != null && existingInjected.getParent() == actionRow) {
                 keepNativeActionMenuOnScreen(activity, actionRow);
                 return;
@@ -311,45 +304,8 @@ public final class ShareBootstrap {
             existingInjected = null;
         }
 
-        if (existingInjected != null) {
-            positionStandaloneShare(activity, existingInjected);
-            return;
-        }
-
-        // Google may omit the entire action row when text extraction is not an
-        // available action. It also removes the row briefly while rebinding it,
-        // so wait for a stable absence before showing a one-button fallback.
-        long now = System.currentTimeMillis();
-        if (actionRowMissingSince == 0L) actionRowMissingSince = now;
-        if (now - actionRowMissingSince < FALLBACK_DELAY_MS) return;
-        TextView button = new TextView(activity);
-        button.setTag(BUTTON_TAG);
-        button.setText(shareLabel());
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        button.setGravity(Gravity.CENTER);
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setElevation(dp(activity, 8));
-        button.setPadding(dp(activity, 18), 0, dp(activity, 18), 0);
-        button.setMinHeight(dp(activity, 44));
-        button.setContentDescription(shareLabel());
-
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.argb(235, 43, 43, 43));
-        background.setCornerRadius(dp(activity, 24));
-        button.setBackground(background);
-        button.setOnClickListener(view -> shareLatest(activity, button));
-
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 44));
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.topMargin = statusBarHeight(activity) + dp(activity, 92);
-        root.addView(button, params);
-        positionStandaloneShare(activity, button);
-        button.post(() -> positionStandaloneShare(activity, button));
-        Log.i(TAG, "Share button added to " + activity.getClass().getName());
-        debugLog("standalone button added region=" + rectText(activeRegion));
+        // No standalone fallback (Jay decision, 0.2.4): when Google omits its
+        // action row there is no verified image source, so no share button.
     }
 
     private static TextView findNativeActionReference(ViewGroup actionRow) {
@@ -361,86 +317,6 @@ public final class ShareBootstrap {
             }
         }
         return null;
-    }
-
-    private static void positionStandaloneShare(Activity activity, View button) {
-        try {
-            View root = activity.getWindow().getDecorView();
-            if (!(button.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
-            Rect selection = selectedRegionOnScreen(activity);
-
-            int[] rootLocation = new int[2];
-            root.getLocationOnScreen(rootLocation);
-            int width = button.getWidth();
-            int height = button.getHeight();
-            if (width <= 0 || height <= 0) {
-                int widthSpec = View.MeasureSpec.makeMeasureSpec(
-                        root.getWidth(), View.MeasureSpec.AT_MOST);
-                int heightSpec = View.MeasureSpec.makeMeasureSpec(
-                        dp(activity, 44), View.MeasureSpec.EXACTLY);
-                button.measure(widthSpec, heightSpec);
-                width = button.getMeasuredWidth();
-                height = button.getMeasuredHeight();
-            }
-            if (width <= 0 || height <= 0) return;
-
-            int margin = dp(activity, 8);
-            int gap = dp(activity, 10);
-            int safeLeft = rootLocation[0] + margin;
-            int safeRight = rootLocation[0] + root.getWidth() - margin;
-            int safeTop = rootLocation[1] + statusBarHeight(activity) + dp(activity, 64);
-            int safeBottom = rootLocation[1] + root.getHeight() - margin;
-
-            int headerId = activity.getResources().getIdentifier(
-                    "lens_overlay_buttons_container", "id", activity.getPackageName());
-            View header = headerId == 0 ? null : root.findViewById(headerId);
-            Rect visible = new Rect();
-            if (header != null && header.getGlobalVisibleRect(visible)) {
-                safeTop = Math.max(safeTop, visible.bottom + margin);
-            }
-
-            int panelId = activity.getResources().getIdentifier(
-                    "lens_info_panel", "id", activity.getPackageName());
-            View panel = panelId == 0 ? null : root.findViewById(panelId);
-            if (panel != null && panel.getGlobalVisibleRect(visible) &&
-                    visible.top > safeTop) {
-                safeBottom = Math.min(safeBottom, visible.top - margin);
-            }
-
-            int x;
-            int y;
-            if (selection != null && !selection.isEmpty()) {
-                x = selection.centerX() - width / 2;
-                int above = selection.top - gap - height;
-                int below = selection.bottom + gap;
-                if (above >= safeTop) {
-                    y = above;
-                } else if (below + height <= safeBottom) {
-                    y = below;
-                } else {
-                    y = Math.max(safeTop, Math.min(above, safeBottom - height));
-                }
-            } else {
-                x = rootLocation[0] + (root.getWidth() - width) / 2;
-                y = rootLocation[1] + statusBarHeight(activity) + dp(activity, 92);
-            }
-            x = Math.max(safeLeft, Math.min(x, safeRight - width));
-            y = Math.max(safeTop, Math.min(y, safeBottom - height));
-
-            FrameLayout.LayoutParams params =
-                    (FrameLayout.LayoutParams) button.getLayoutParams();
-            int leftMargin = x - rootLocation[0];
-            int topMargin = y - rootLocation[1];
-            if (params.gravity != (Gravity.TOP | Gravity.LEFT) ||
-                    params.leftMargin != leftMargin || params.topMargin != topMargin) {
-                params.gravity = Gravity.TOP | Gravity.LEFT;
-                params.leftMargin = leftMargin;
-                params.topMargin = topMargin;
-                button.setLayoutParams(params);
-            }
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to position standalone share", error);
-        }
     }
 
     private static Rect selectedRegionOnScreen(Activity activity) {
@@ -972,11 +848,6 @@ public final class ShareBootstrap {
         return "zh".equals(Locale.getDefault().getLanguage()) ? "准备分享图片失败" : "Unable to share image";
     }
 
-    private static int statusBarHeight(Activity activity) {
-        int id = activity.getResources().getIdentifier("status_bar_height", "dimen", "android");
-        return id == 0 ? 0 : activity.getResources().getDimensionPixelSize(id);
-    }
-
     private static int dp(Activity activity, int value) {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
@@ -995,7 +866,6 @@ public final class ShareBootstrap {
         Activity previous = currentActivity.get();
         if (previous != activity) {
             currentSelection = null;
-            actionRowMissingSince = 0L;
         }
         currentActivity = new WeakReference<>(activity);
         // No back interception on purpose. Upstream (Entermage) registered an
@@ -1048,8 +918,7 @@ public final class ShareBootstrap {
                 removeButton(activity);
                 clearPreDrawGuard();
                 currentSelection = null;
-                actionRowMissingSince = 0L;
-                currentActivity = new WeakReference<>(null);
+                    currentActivity = new WeakReference<>(null);
             }
         }
     }
