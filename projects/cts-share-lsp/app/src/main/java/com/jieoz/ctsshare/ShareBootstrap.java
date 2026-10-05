@@ -6,12 +6,10 @@ import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -70,21 +68,6 @@ public final class ShareBootstrap {
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
     private static Bitmap currentSelection;
     private static long actionRowMissingSince;
-    // Appearance of the last native row button seen this process, so the
-    // standalone share button can wear exactly the same style (Jay: the
-    // fallback must look identical to the row buttons).
-    private static Drawable cachedNativeBackground;
-    private static ColorStateList cachedNativeBackgroundTint;
-    private static ColorStateList cachedNativeTextColors;
-    private static float cachedNativeTextSize;
-    private static Typeface cachedNativeTypeface;
-    private static int cachedNativePaddingStart;
-    private static int cachedNativePaddingTop;
-    private static int cachedNativePaddingEnd;
-    private static int cachedNativePaddingBottom;
-    private static int cachedNativeMinHeight;
-    private static float cachedNativeElevation;
-    private static boolean cachedNativeAppearanceValid;
     // True only while handling a tap on the standalone (fallback) button;
     // the image then comes from a PixelCopy of the live selection region.
     private static boolean shareViaRegionFallback;
@@ -355,7 +338,7 @@ public final class ShareBootstrap {
         TextView button = new TextView(activity);
         button.setTag(BUTTON_TAG);
         button.setText(shareLabel());
-        applyCachedFallbackAppearance(activity, button);
+        applyFallbackAppearance(activity, button);
         button.setContentDescription(shareLabel());
         button.setOnClickListener(view -> {
             shareViaRegionFallback = true;
@@ -708,7 +691,6 @@ public final class ShareBootstrap {
     }
 
     private static void copyButtonAppearance(TextView source, Button target) {
-        cacheNativeAppearance(source);
         Drawable background = source.getBackground();
         if (background != null && background.getConstantState() != null) {
             target.setBackground(background.getConstantState().newDrawable().mutate());
@@ -735,49 +717,12 @@ public final class ShareBootstrap {
         target.setFocusable(true);
     }
 
-    private static void cacheNativeAppearance(TextView source) {
-        Drawable background = source.getBackground();
-        cachedNativeBackground =
-                background != null && background.getConstantState() != null ?
-                background.getConstantState().newDrawable().mutate() : background;
-        cachedNativeBackgroundTint = source.getBackgroundTintList();
-        cachedNativeTextColors = source.getTextColors();
-        cachedNativeTextSize = source.getTextSize();
-        cachedNativeTypeface = source.getTypeface();
-        cachedNativePaddingStart = source.getPaddingStart();
-        cachedNativePaddingTop = source.getPaddingTop();
-        cachedNativePaddingEnd = source.getPaddingEnd();
-        cachedNativePaddingBottom = source.getPaddingBottom();
-        cachedNativeMinHeight = source.getMinimumHeight();
-        cachedNativeElevation = source.getElevation();
-        cachedNativeAppearanceValid = true;
-    }
-
-    // The standalone button must match the native row buttons. Use the cached
-    // native appearance when one was seen this process; otherwise a white
-    // Google-style button so the fallback never regresses to the old dark pill.
-    private static void applyCachedFallbackAppearance(Activity activity, TextView target) {
-        if (cachedNativeAppearanceValid) {
-            target.setBackground(cachedNativeBackground != null &&
-                    cachedNativeBackground.getConstantState() != null ?
-                    cachedNativeBackground.getConstantState().newDrawable().mutate() :
-                    cachedNativeBackground);
-            target.setBackgroundTintList(cachedNativeBackgroundTint);
-            target.setTextColor(cachedNativeTextColors);
-            target.setTextSize(TypedValue.COMPLEX_UNIT_PX, cachedNativeTextSize);
-            target.setTypeface(cachedNativeTypeface);
-            target.setGravity(Gravity.CENTER);
-            target.setIncludeFontPadding(true);
-            target.setPaddingRelative(cachedNativePaddingStart, cachedNativePaddingTop,
-                    cachedNativePaddingEnd, cachedNativePaddingBottom);
-            target.setMinWidth(0);
-            target.setMinimumWidth(0);
-            target.setMinHeight(cachedNativeMinHeight);
-            target.setMinimumHeight(cachedNativeMinHeight);
-            target.setElevation(cachedNativeElevation);
-            target.setAllCaps(false);
-            return;
-        }
+    // The standalone button appears only where Google omits its action row
+    // (image-only selections), so there is no native button to match there.
+    // Keep it deterministic: always the white Google-style pill. It must NOT
+    // inherit styles remembered from earlier text-selection sessions — that
+    // made the button's look depend on sampling history (0.2.7).
+    private static void applyFallbackAppearance(Activity activity, TextView target) {
         target.setTextColor(Color.rgb(32, 33, 36));
         target.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         target.setGravity(Gravity.CENTER);
