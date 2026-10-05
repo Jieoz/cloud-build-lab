@@ -132,7 +132,7 @@ final class EntryKeeper {
         if (!restore(app)) scheduleRestoreRetries(app);
     }
 
-    private static final long[] RETRY_DELAYS_MS = {5_000, 20_000};
+    private static final long[] RETRY_DELAYS_MS = {5_000, 20_000, 60_000};
     private static final ExecutorService retry = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "timeline-unlocker-keeper-retry");
         t.setDaemon(true);
@@ -143,8 +143,20 @@ final class EntryKeeper {
     private static void scheduleRestoreRetries(Context app) {
         load();
         if (restoreDone.get()) return;
-        if (prop(KEY_HAVE_SNAP).isEmpty()) {
+        String haveSnap = prop(KEY_HAVE_SNAP);
+        String snapDay = prop(KEY_SNAP_DAY);
+        // 4.23 wrote snapshot_day without have_snapshot; that snapshot is just as real. Without
+        // this migration the 10-05 device concluded "never snapshotted", silently disabled the
+        // whole retry ladder, and 106 snapshot rows sat unused all day (10-05 08:12/15:25/15:59).
+        if (haveSnap.isEmpty() && !snapDay.isEmpty()) {
+            state.setProperty(KEY_HAVE_SNAP, snapDay);
+            save();
+            haveSnap = snapDay;
+            say("keeper have_snapshot backfilled from snapshot_day=" + snapDay);
+        }
+        if (haveSnap.isEmpty()) {
             restoreDone.set(true); // nothing upstream was ever snapshotted: no rows will appear
+            say("keeper restore: no snapshot on record, ladder not armed");
             return;
         }
         final Context a = app;
@@ -156,6 +168,7 @@ final class EntryKeeper {
                     return;
                 }
                 if (restoreDone.get()) return;
+                say("keeper restore retry t+" + (delay / 1000) + "s");
                 if (restore(a)) return;
             }
         });
@@ -230,7 +243,10 @@ final class EntryKeeper {
             long now = System.currentTimeMillis();
             String today = KeeperPolicy.dayStamp(now);
             if (authorized) {
-                if (!KeeperPolicy.shouldSnapshot(prop(KEY_SNAP_DAY), now)) return; // once/day
+                if (!KeeperPolicy.shouldSnapshot(prop(KEY_SNAP_DAY), now)) {
+                    say("keeper snapshot skipped: already snapshotted today");
+                    return; // once/day
+                }
                 int files = snapshot(app);
                 if (files > 0) {
                     state.setProperty(KEY_SNAP_DAY, today);

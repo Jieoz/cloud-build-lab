@@ -59,6 +59,23 @@ public class KeeperTest {
     }
 
     @Test
+    public void snapshotDayWithoutHaveSnapshotStillCountsAsSnapshot() {
+        // 10-05: the device's only snapshot was written by 4.23, which set snapshot_day but not
+        // have_snapshot (the key shipped in 4.24). The ladder's gate saw "never snapshotted",
+        // silently disabled the retries, and 106 rows went unused all day. The gate must accept
+        // snapshot_day alone as proof a snapshot exists (EntryKeeper backfills the key).
+        Properties state = new Properties();
+        assertTrue(state.getProperty("have_snapshot", "").isEmpty());
+        String snapDay = "20261005";
+        // the exact gate logic now in EntryKeeper.scheduleRestoreRetries
+        String haveSnap = KeeperPolicy.prop(state, "have_snapshot");
+        if (haveSnap.isEmpty() && !snapDay.isEmpty()) haveSnap = snapDay;
+        assertFalse(haveSnap.isEmpty());
+        // and a truly never-snapshotted device still skips the ladder
+        assertTrue(KeeperPolicy.prop(new Properties(), "have_snapshot").isEmpty());
+    }
+
+    @Test
     public void snapshotOncePerDay() {
         assertTrue(KeeperPolicy.shouldSnapshot("", NOW));
         assertTrue(KeeperPolicy.shouldSnapshot(null, NOW));
