@@ -335,7 +335,7 @@ public final class ShareBootstrap {
         }
 
         if (existingInjected != null) {
-            keepStandaloneShareOnScreen(activity, existingInjected);
+            positionStandaloneShare(activity, existingInjected);
             return;
         }
 
@@ -368,16 +368,24 @@ public final class ShareBootstrap {
         params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         params.topMargin = statusBarHeight(activity) + dp(activity, 92);
         root.addView(button, params);
-        button.post(() -> keepStandaloneShareOnScreen(activity, button));
+        button.post(() -> positionStandaloneShare(activity, button));
         Log.i(TAG, "Share button added to " + activity.getClass().getName());
         debugLog("standalone share button added region=" + rectText(activeRegion));
     }
 
     private static TextView findNativeActionReference(ViewGroup actionRow) {
-        if (actionRow == null) return null;
+        // Only a SHOWN row/button counts as a join reference. Google leaves the
+        // old row GONE/INVISIBLE (or sized 0) while rebinding it; joining or
+        // trusting an invisible row strands or removes the share button (0.2.6).
+        if (actionRow == null || !actionRow.isShown()
+                || actionRow.getWidth() <= 0 || actionRow.getHeight() <= 0) {
+            return null;
+        }
         for (int i = 0; i < actionRow.getChildCount(); i++) {
             View child = actionRow.getChildAt(i);
-            if (child instanceof TextView && !BUTTON_TAG.equals(child.getTag())) {
+            if (child instanceof TextView && !BUTTON_TAG.equals(child.getTag())
+                    && child.isShown()
+                    && child.getWidth() > 0 && child.getHeight() > 0) {
                 return (TextView) child;
             }
         }
@@ -783,36 +791,90 @@ public final class ShareBootstrap {
         target.setAllCaps(false);
     }
 
-    private static void keepStandaloneShareOnScreen(Activity activity, View button) {
-        try {
-            if (!(button.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
-            View root = activity.getWindow().getDecorView();
-            int[] rootLocation = new int[2];
-            root.getLocationOnScreen(rootLocation);
-            int[] buttonLocation = new int[2];
-            button.getLocationOnScreen(buttonLocation);
-            int width = button.getWidth();
-            if (width <= 0) return;
-            int safeLeft = rootLocation[0] + dp(activity, 8);
-            int safeRight = rootLocation[0] + root.getWidth() - dp(activity, 8);
-            int left = buttonLocation[0];
-            int right = left + width;
-            float shift = 0f;
-            if (right > safeRight) {
-                shift = safeRight - right;
-            } else if (left < safeLeft) {
-                shift = safeLeft - left;
-            }
-            if (shift != 0f) button.setTranslationX(button.getTranslationX() + shift);
-        } catch (Throwable error) {
-            Log.e(TAG, "Unable to keep standalone share on screen", error);
-        }
-    }
-
     private static int statusBarHeight(Activity activity) {
         int id = activity.getResources().getIdentifier(
                 "status_bar_height", "dimen", "android");
         return id == 0 ? 0 : activity.getResources().getDimensionPixelSize(id);
+    }
+
+    private static void positionStandaloneShare(Activity activity, View button) {
+        try {
+            View root = activity.getWindow().getDecorView();
+            if (!(button.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
+            Rect selection = selectedRegionOnScreen(activity);
+
+            int[] rootLocation = new int[2];
+            root.getLocationOnScreen(rootLocation);
+            int width = button.getWidth();
+            int height = button.getHeight();
+            if (width <= 0 || height <= 0) {
+                int widthSpec = View.MeasureSpec.makeMeasureSpec(
+                        root.getWidth(), View.MeasureSpec.AT_MOST);
+                int heightSpec = View.MeasureSpec.makeMeasureSpec(
+                        dp(activity, 44), View.MeasureSpec.EXACTLY);
+                button.measure(widthSpec, heightSpec);
+                width = button.getMeasuredWidth();
+                height = button.getMeasuredHeight();
+            }
+            if (width <= 0 || height <= 0) return;
+
+            int margin = dp(activity, 8);
+            int gap = dp(activity, 10);
+            int safeLeft = rootLocation[0] + margin;
+            int safeRight = rootLocation[0] + root.getWidth() - margin;
+            int safeTop = rootLocation[1] + statusBarHeight(activity) + dp(activity, 64);
+            int safeBottom = rootLocation[1] + root.getHeight() - margin;
+
+            int headerId = activity.getResources().getIdentifier(
+                    "lens_overlay_buttons_container", "id", activity.getPackageName());
+            View header = headerId == 0 ? null : root.findViewById(headerId);
+            Rect visible = new Rect();
+            if (header != null && header.getGlobalVisibleRect(visible)) {
+                safeTop = Math.max(safeTop, visible.bottom + margin);
+            }
+
+            int panelId = activity.getResources().getIdentifier(
+                    "lens_info_panel", "id", activity.getPackageName());
+            View panel = panelId == 0 ? null : root.findViewById(panelId);
+            if (panel != null && panel.getGlobalVisibleRect(visible) &&
+                    visible.top > safeTop) {
+                safeBottom = Math.min(safeBottom, visible.top - margin);
+            }
+
+            int x;
+            int y;
+            if (selection != null && !selection.isEmpty()) {
+                x = selection.centerX() - width / 2;
+                int above = selection.top - gap - height;
+                int below = selection.bottom + gap;
+                if (above >= safeTop) {
+                    y = above;
+                } else if (below + height <= safeBottom) {
+                    y = below;
+                } else {
+                    y = Math.max(safeTop, Math.min(above, safeBottom - height));
+                }
+            } else {
+                x = rootLocation[0] + (root.getWidth() - width) / 2;
+                y = rootLocation[1] + statusBarHeight(activity) + dp(activity, 92);
+            }
+            x = Math.max(safeLeft, Math.min(x, safeRight - width));
+            y = Math.max(safeTop, Math.min(y, safeBottom - height));
+
+            FrameLayout.LayoutParams params =
+                    (FrameLayout.LayoutParams) button.getLayoutParams();
+            int leftMargin = x - rootLocation[0];
+            int topMargin = y - rootLocation[1];
+            if (params.gravity != (Gravity.TOP | Gravity.LEFT) ||
+                    params.leftMargin != leftMargin || params.topMargin != topMargin) {
+                params.gravity = Gravity.TOP | Gravity.LEFT;
+                params.leftMargin = leftMargin;
+                params.topMargin = topMargin;
+                button.setLayoutParams(params);
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "Unable to position standalone share", error);
+        }
     }
 
     private static void removeButton(Activity activity) {
