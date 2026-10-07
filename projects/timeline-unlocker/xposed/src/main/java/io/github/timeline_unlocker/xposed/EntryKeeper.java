@@ -31,8 +31,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * snapshotted to {@code Download/TimelineUnlocker/flags/} (survives clear-data, proven by the
  * log files themselves); every Maps process start restores them. If the entry then survives the
  * daily revoke the hypothesis is proven and the problem is dead; if not, the local route is
- * excluded with per-file evidence. shared_prefs is never restored (would clobber user
- * settings).</p>
+ * excluded with per-file evidence. shared_prefs is never restored except
+ * {@code settings_preference.xml} (4.26: it carries the {@code timeline_*} keys that record
+ * the grant; skipping exactly this file would have made the next revoke uninterpretable).
+ * When the departure is confirmed (cn + real home + zero keywords on a settled scan), the
+ * same tracked set is captured a second time into {@code rv_}-prefixed Download rows and
+ * {@code keeper-revoke-manifest.txt} — the diff against the authorization snapshot is the
+ * revoke's local footprint.</p>
  *
  * <p><b>Gone-reminder:</b> when a real home screen (views &ge; 100) shows no entry group under
  * cn, one notification per day offers the verified in-process deep link — no module UI, no
@@ -48,6 +53,8 @@ final class EntryKeeper {
     private static final String KEY_SNAP_DAY = "snapshot_day";
     /** Set once a snapshot lands; a data clear deletes it with everything else. */
     private static final String KEY_HAVE_SNAP = "have_snapshot";
+    /** Day stamp of the newest revoke-footprint capture (4.26); forensics only. */
+    private static final String KEY_REVOKE_DAY = "revoke_day";
     /** name -> MediaStore row, so restarts reuse the same row instead of spawning "(1)" copies. */
     private static final java.util.concurrent.ConcurrentHashMap<String, android.net.Uri> rowCache =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -270,6 +277,7 @@ final class EntryKeeper {
                 say("keeper notify suppressed: " + d.reason);
                 return;
             }
+            captureRevoke(app);
             if (notify(app)) {
                 state.setProperty(KEY_OPEN_DAY, today);
                 save();
@@ -280,6 +288,34 @@ final class EntryKeeper {
     // ---- snapshot: private files -> Download/TimelineUnlocker/flags/ ------------------------
 
     private static int snapshot(Context app) {
+        return capture(app, KeeperCodec.MANIFEST_NAME, s -> s);
+    }
+
+    /**
+     * Revoke forensics (4.26): this exact branch is the confirmed-departure moment (cn + real
+     * home + settled scan with zero Timeline keywords), so capture the same tracked file set
+     * into {@code rv_}-prefixed rows plus {@link KeeperCodec#REVOKE_MANIFEST_NAME}. The diff
+     * against the authorization snapshot is then the revoke's local footprint — the 10-05
+     * revoke window lined up with settings_preference.xml growing 13213&rarr;21364, but no
+     * revoke-moment capture existed. At most once per day (revoke-day key); snapshot_day is
+     * deliberately untouched, restore keeps consuming the authorization snapshot.
+     */
+    private static void captureRevoke(Context app) {
+        String today = KeeperPolicy.dayStamp(System.currentTimeMillis());
+        if (today.equals(prop(KEY_REVOKE_DAY))) {
+            say("keeper revoke snapshot skipped: already captured today");
+            return;
+        }
+        int files = capture(app, KeeperCodec.REVOKE_MANIFEST_NAME, KeeperCodec::revokeName);
+        if (files > 0) {
+            state.setProperty(KEY_REVOKE_DAY, today);
+            save();
+        }
+    }
+
+    /** Shared capture core; {@code nameOverride} namespaces the row names (empty = as-is). */
+    private static int capture(Context app, String manifestName,
+                               java.util.function.UnaryOperator<String> nameOverride) {
         java.util.TreeMap<String, String> files = new java.util.TreeMap<>();
         EntryWatch.collectTrackedFiles(app.getDataDir(), files);
         if (files.isEmpty()) {
@@ -299,13 +335,14 @@ final class EntryKeeper {
             if (size > MAX_BYTES_PER_FILE) continue;
             byte[] data = readPrivate(app, rel);
             if (data == null) continue;
-            if (writeRow(app, KeeperCodec.encodeName(rel), data)) {
-                manifest.append(KeeperCodec.manifestLine(rel, data.length)).append('\n');
+            String rowName = nameOverride.apply(KeeperCodec.encodeName(rel));
+            if (writeRow(app, rowName, data)) {
+                manifest.append(rowName).append('|').append(rel).append('|').append(data.length).append('\n');
                 written++;
                 if (written >= MAX_FILES) break;
             }
         }
-        boolean manifestOk = writeRow(app, KeeperCodec.MANIFEST_NAME,
+        boolean manifestOk = writeRow(app, manifestName,
                 manifest.toString().getBytes(StandardCharsets.UTF_8));
         say("keeper snapshot files=" + written + " manifest=" + manifestOk);
         return manifestOk ? written : 0;

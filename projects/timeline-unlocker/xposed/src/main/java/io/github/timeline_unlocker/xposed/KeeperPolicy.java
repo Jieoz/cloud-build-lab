@@ -71,12 +71,25 @@ final class KeeperPolicy {
 
     /**
      * A stored snapshot may be restored: only files this process itself wrote (owner check is
-     * implicit), and never shared_prefs — wholesale-restoring preferences would clobber newer
-     * user settings; the hypothesis under test is about flag/phenotype files.
+     * implicit). shared_prefs stays excluded — wholesale-restoring preferences would clobber
+     * newer user settings — except {@code settings_preference.xml}: it carries the
+     * {@code timeline_*} keys that record the grant itself (8 keys in the 10-07 snapshot,
+     * incl. {@code timeline_receipt_processing_opt_in}/{@code _notifications_opt_out_shown}/
+     * {@code _show_notifications}). The 10-05 revoke window lined up with this file growing
+     * 13213&rarr;21364 bytes, so restoring the others while skipping this one could make the
+     * next natural revoke experiment uninterpretable: "entry still gone" would conflate
+     * account-side revocation with the one file that was never given back. Known cost,
+     * accepted: whole-file restore also rolls back that day's other Maps settings (Jay
+     * touches none).
      */
     static boolean mayRestore(String relativePath) {
-        return relativePath != null && !relativePath.startsWith("shared_prefs/");
+        if (relativePath == null) return false;
+        if (!relativePath.startsWith("shared_prefs/")) return true;
+        return relativePath.equals(RESTORED_PREF);
     }
+
+    /** The one pref exempted from the shared_prefs exclusion (4.26). */
+    static final String RESTORED_PREF = "shared_prefs/settings_preference.xml";
 
     /** Snapshot at most once a day: the files change daily but a week-old copy already answers. */
     static boolean shouldSnapshot(String lastSnapshotDay, long now) {

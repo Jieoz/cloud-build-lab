@@ -11,11 +11,28 @@ package io.github.timeline_unlocker.xposed;
 final class KeeperCodec {
 
     static final String MANIFEST_NAME = "keeper-manifest.txt";
+    /**
+     * Manifest of the revoke-footprint snapshot (4.26): same flags dir, own rows. Line format
+     * {@code rv_name|relative|size} — column 1 carries the {@code rv_} prefix, so it does NOT
+     * satisfy {@link #parseManifest}'s encoded-name check; the revoke manifest is parsed
+     * off-device only, restore never reads it.
+     */
+    static final String REVOKE_MANIFEST_NAME = "keeper-revoke-manifest.txt";
 
     private KeeperCodec() {}
 
     static String encodeName(String relativePath) {
         return relativePath.replace('/', '_').replace('\\', '_');
+    }
+
+    /**
+     * Rows of the revoke capture are namespaced: {@code rv_} + encoded. They must never be
+     * able to overwrite an authorization snapshot's payload row — the manifest is the only
+     * trusted name map, but a name collision would silently replace evidence with current
+     * state. Prefixed rows also let one Download export deliver both snapshots side by side.
+     */
+    static String revokeName(String encodedName) {
+        return "rv_" + encodedName;
     }
 
     // No decodeName: encoded names are ambiguous when a real filename contains '_', so the

@@ -86,9 +86,43 @@ public class KeeperTest {
     @Test
     public void prefsAreNeverRestored() {
         assertFalse(KeeperPolicy.mayRestore("shared_prefs/primes.xml"));
+        assertFalse(KeeperPolicy.mayRestore("shared_prefs/com.google.android.gms.appid.xml"));
         assertFalse(KeeperPolicy.mayRestore(null));
         assertTrue(KeeperPolicy.mayRestore("files/phenotype/shared/all_accounts.pb"));
         assertTrue(KeeperPolicy.mayRestore("no_backup/flags/b533107089"));
+    }
+
+    @Test
+    public void settingsPreferenceIsTheOneRestoredPref() {
+        // 4.26: settings_preference.xml carries the timeline_* keys that record the grant
+        // itself (8 keys in the 10-07 snapshot); the 10-05 revoke window lined up with this
+        // file growing 13213->21364. Skipping exactly this file would have made the next
+        // natural-revoke experiment uninterpretable ("entry still gone" could then mean
+        // account-side revocation OR the one excluded file). Whole-file restore accepted.
+        assertTrue(KeeperPolicy.mayRestore(KeeperPolicy.RESTORED_PREF));
+        assertEquals("shared_prefs/settings_preference.xml", KeeperPolicy.RESTORED_PREF);
+        // every other pref stays excluded
+        assertFalse(KeeperPolicy.mayRestore("shared_prefs/settings_preference.xml.bak"));
+    }
+
+    @Test
+    public void revokeRowsAreNamespacedAgainstAuthorizationRows() {
+        // The revoke capture must never overwrite an authorization snapshot's payload row:
+        // its manifest is trusted, but a name collision would silently replace evidence.
+        String plain = KeeperCodec.encodeName("files/phenotype/shared/all_accounts.pb");
+        String rv = KeeperCodec.revokeName(plain);
+        assertEquals("rv_" + plain, rv);
+        assertFalse(rv.equals(plain));
+    }
+
+    @Test
+    public void revokeManifestIsNeverConsumedByRestore() {
+        // Revoke manifest lines are rv_-prefixed in column 1, which fails parseManifest's
+        // encoded-name check on purpose: restore only ever consumes keeper-manifest.txt.
+        String rel = "files/phenotype/shared/all_accounts.pb";
+        String line = KeeperCodec.revokeName(KeeperCodec.encodeName(rel)) + "|" + rel + "|185";
+        StringBuilder out = new StringBuilder();
+        assertNull(KeeperCodec.parseManifest(line, out));
     }
 
     @Test
