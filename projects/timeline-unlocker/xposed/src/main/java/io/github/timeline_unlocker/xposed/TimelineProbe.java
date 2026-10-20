@@ -51,6 +51,16 @@ final class TimelineProbe {
         return out.toString();
     }
 
+    /**
+     * Bounded diagnostic line for an edit to settings_preference.xml's timeline_* keys.
+     * Tells who wrote what without touching the data or blocking the edit.
+     */
+    static String prefEdit(String op, String key, Object val, String caller) {
+        return "timeline pref " + op + " key=" + bound(key, 40)
+                + " val=" + bound(val == null ? "null" : String.valueOf(val), 24)
+                + " by " + bound(caller, 64);
+    }
+
     private static boolean primitive(Object value) {
         return value instanceof Boolean || value instanceof Integer || value instanceof Long
                 || value instanceof Short || value instanceof Byte;

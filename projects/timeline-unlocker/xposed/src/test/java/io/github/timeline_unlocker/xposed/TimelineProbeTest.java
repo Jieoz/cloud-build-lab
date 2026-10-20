@@ -65,4 +65,12 @@ public class TimelineProbeTest {
         assertFalse(noisy.contains("\n"));
         assertFalse(noisy.contains("args="));
     }
+
+    @Test
+    public void prefEditLineNamesOpKeyValAndCaller() {
+        String line = TimelineProbe.prefEdit("put", "timeline_show_notifications", Boolean.FALSE, "bxyz.a < cabc.b");
+        assertEquals("timeline pref put key=timeline_show_notifications val=false by bxyz.a < cabc.b", line);
+        String remove = TimelineProbe.prefEdit("remove", "timeline_opt_in", null, "?");
+        assertEquals("timeline pref remove key=timeline_opt_in val=null by ?", remove);
+    }
 }

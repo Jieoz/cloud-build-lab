@@ -105,6 +105,7 @@ public class MainHook extends XposedModule {
             // correction for the live dot. The module only shifts history points.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
+            hookSettingsPreference(cl);
             if (ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US)) {
                 // Maps reads us: it then stops its own GCJ-02 shift of the live dot, so the
                 // module does that shift on Location reads instead.
@@ -752,5 +753,49 @@ public class MainHook extends XposedModule {
         String key = kind + " " + owner + "." + member + "=" + value;
         if (probed.size() >= MAX_PROBE_LINES || !probed.add(key)) return;
         log("%s %s", kind, TimelineProbe.line(owner, member, value));
+    }
+
+    /**
+     * Read-only probe on Maps' SharedPreferences writes for settings_preference.xml.
+     * Fires purely on diagnostic log to capture who/when timeline_* keys are modified or removed.
+     */
+    private void hookSettingsPreference(ClassLoader cl) {
+        try {
+            Class<?> spImpl = cl.loadClass("android.app.SharedPreferencesImpl$EditorImpl");
+            hook(spImpl.getDeclaredMethod("putBoolean", String.class, boolean.class)).intercept(chain -> {
+                Object res = chain.proceed();
+                logPrefEdit("putBoolean", chain.getArg(0), chain.getArg(1));
+                return res;
+            });
+            hook(spImpl.getDeclaredMethod("putString", String.class, String.class)).intercept(chain -> {
+                Object res = chain.proceed();
+                logPrefEdit("putString", chain.getArg(0), chain.getArg(1));
+                return res;
+            });
+            hook(spImpl.getDeclaredMethod("remove", String.class)).intercept(chain -> {
+                Object res = chain.proceed();
+                logPrefEdit("remove", chain.getArg(0), null);
+                return res;
+            });
+            hook(spImpl.getDeclaredMethod("clear")).intercept(chain -> {
+                Object res = chain.proceed();
+                if (DiagLog.isEnabled()) {
+                    String caller = WatchState.callerSignature(new Throwable().getStackTrace());
+                    DiagLog.line(TimelineProbe.prefEdit("clear", "*", null, caller));
+                }
+                return res;
+            });
+            log("hooked settings preference editor probe");
+        } catch (Throwable t) {
+            log("hook settings preference editor failed: %s", t.getClass().getSimpleName());
+        }
+    }
+
+    private void logPrefEdit(String op, Object keyObj, Object val) {
+        if (!DiagLog.isEnabled() || !(keyObj instanceof String)) return;
+        String key = (String) keyObj;
+        if (!key.startsWith("timeline_")) return;
+        String caller = WatchState.callerSignature(new Throwable().getStackTrace());
+        DiagLog.line(TimelineProbe.prefEdit(op, key, val, caller));
     }
 }
