@@ -39,7 +39,9 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (System.getenv("REQUIRE_RELEASE_SIGNING") == "true") {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             isMinifyEnabled = false
