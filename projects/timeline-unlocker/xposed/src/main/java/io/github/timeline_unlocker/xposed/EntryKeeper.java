@@ -390,7 +390,9 @@ final class EntryKeeper {
             android.content.ContentResolver resolver = app.getContentResolver();
             Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
             String relative = flagsRelativePath();
-            // Match exact name OR duplicate names like "name (1)" created by MediaStore collisions
+            // Match exact name OR duplicate names created by MediaStore collisions.
+            // Android may append " (1)" either at the very end ("foo.txt (1)")
+            // or before the extension ("foo (1).txt").
             String nameWithoutExt = name;
             String ext = "";
             int dot = name.lastIndexOf('.');
@@ -402,8 +404,9 @@ final class EntryKeeper {
                     new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME},
                     MediaStore.MediaColumns.RELATIVE_PATH + "=? AND ("
                             + MediaStore.MediaColumns.DISPLAY_NAME + "=? OR "
+                            + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ? OR "
                             + MediaStore.MediaColumns.DISPLAY_NAME + " LIKE ?)",
-                    new String[]{relative, name, nameWithoutExt + " (%)" + ext},
+                    new String[]{relative, name, name + " (%)", nameWithoutExt + " (%)" + ext},
                     MediaStore.MediaColumns._ID + " DESC");
             if (cursor == null) return null;
             try {
