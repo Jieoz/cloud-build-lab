@@ -88,7 +88,7 @@ public class MainHook extends XposedModule {
         boolean mapsMain = PKG_MAPS.equals(pkg) && param.isFirstPackage()
                 && PKG_MAPS.equals(processName());
         if (mapsMain) {
-            mapsIdentity = "us";
+            mapsIdentity = ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US) ? "us" : "cn";
             // Only with the log on: startup reads are captured from the first one.
             if (ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_ON)) EntryWatch.arm();
             // Keeper restore must land before Maps reads its flags: this is the earliest point
@@ -101,15 +101,21 @@ public class MainHook extends XposedModule {
         Application current = currentApplication();
         if (current != null) onApplication(current, pkg);
         if (PKG_MAPS.equals(pkg)) {
-            // Live dot GCJ-02 correction is handled by module's hookLocationGcj02 while Maps
-            // runs under US identity to activate Timeline UI and click dispatch.
+            // log33/log60 pair: Maps keeps reading its real SIM, so it keeps its own GCJ-02
+            // correction for the live dot. The module only shifts history points.
             hookSemanticLocationPoint(cl);
             hookTimelineReads(cl, false);
             hookSettingsPreference(cl);
-            hookTelephonyManager(cl);
-            hookSystemProperties(cl);
-            hookLocationGcj02();
-            identity("maps identity: us (module shifts live location WGS-84 -> GCJ-02)");
+            if (ModuleRuntime.switchOn(DiagLog.PREFS_NAME, DiagLog.KEY_MAPS_US)) {
+                // Maps reads us: it then stops its own GCJ-02 shift of the live dot, so the
+                // module does that shift on Location reads instead.
+                hookTelephonyManager(cl);
+                hookSystemProperties(cl);
+                hookLocationGcj02();
+                identity("maps identity: us (module shifts live location WGS-84 -> GCJ-02)");
+            } else {
+                identity("maps identity: real SIM (cn), Maps shifts the live dot itself");
+            }
         } else {
             // GMS/GSF decide the entry; log33 proved the two iso reads + system properties
             // are the working pair. Keep exactly that.
