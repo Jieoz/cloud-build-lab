@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId "balti.xposed.pixelifygooglephotos"
-        minSdk 21
+        minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName "4.2-lsp102"
+        versionCode 7
+        versionName "4.3-lsp102"
     }
 
     buildFeatures {
@@ -67,4 +67,11 @@ dependencies {
 
     // Provided by LSPosed 2.2+ at runtime. Packaging it collides with the framework copy.
     compileOnly 'io.github.libxposed:api:102.0.0'
+
+    // Write side: the settings process is outside this module's hook scope, so it must use the
+    // service handle to publish remote preferences. Bundled (not compileOnly) by design.
+    implementation files('libs/libxposed-service-102.0.0.aar')
+    implementation files('libs/libxposed-interface-102.0.0.aar')
+
+    testImplementation 'junit:junit:4.13.2'
 }

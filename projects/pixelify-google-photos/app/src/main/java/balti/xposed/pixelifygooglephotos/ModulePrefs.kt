@@ -3,6 +3,8 @@ package balti.xposed.pixelifygooglephotos
 import android.content.Context
 import android.content.SharedPreferences
 import io.github.libxposed.api.XposedInterface
+import io.github.libxposed.service.XposedService
+import io.github.libxposed.service.XposedServiceHelper
 
 /**
  * Settings written by the module app and read inside Google Photos.
@@ -27,6 +29,26 @@ object ModulePrefs {
     @Volatile
     private var framework: XposedInterface? = null
 
+    @Volatile
+    private var service: XposedService? = null
+
+    /**
+     * The settings UI process is NOT inside this module's hook scope, so [framework] stays null
+     * there. Writing through it silently publishes nothing. The write side must use the
+     * XposedService handle instead — two different interfaces, never interchangeable.
+     */
+    init {
+        XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
+            override fun onServiceBind(bound: XposedService) {
+                service = bound
+            }
+
+            override fun onServiceDied(dead: XposedService) {
+                if (service === dead) service = null
+            }
+        })
+    }
+
     fun bind(base: XposedInterface) {
         framework = base
     }
@@ -44,8 +66,28 @@ object ModulePrefs {
         return base.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
     }
 
+    internal var remoteWriter: ((SharedPreferences) -> Unit)? = { local -> copyToRemote(local) }
+
+    @Volatile
+    var lastPublishError: String? = null
+        private set
+
     fun publish(local: SharedPreferences) {
-        val remote = remote() ?: return
+        try {
+            remoteWriter?.invoke(local)
+            lastPublishError = null
+        } catch (t: Throwable) {
+            lastPublishError = t.javaClass.simpleName + ": " + t.message
+            throw t
+        }
+    }
+
+    /** Test seam: exercises the real service write path, bypassing only the UI publish wrapper. */
+    internal fun publishToService(local: SharedPreferences) = copyToRemote(local)
+
+    private fun copyToRemote(local: SharedPreferences) {
+        val bound = service ?: throw IllegalStateException("XposedService not bound")
+        val remote = bound.getRemotePreferences(Constants.SHARED_PREF_FILE_NAME)
         val editor = remote.edit()
         editor.clear()
         for (key in KEYS) {
@@ -62,7 +104,7 @@ object ModulePrefs {
                 }
             }
         }
-        editor.commit()
+        if (!editor.commit()) throw IllegalStateException("remote commit returned false")
     }
 
     private class PublishingPrefs(private val local: SharedPreferences) : SharedPreferences by local {
@@ -74,14 +116,27 @@ object ModulePrefs {
         private val local: SharedPreferences
     ) : SharedPreferences.Editor by editor {
         override fun apply() {
-            editor.apply()
-            publish(local)
+            // Deterministic: the local value must be on disk before the remote copy is published.
+            editor.commit()
+            publishChecked()
         }
 
         override fun commit(): Boolean {
             val ok = editor.commit()
-            if (ok) publish(local)
+            if (ok) publishChecked()
             return ok
+        }
+
+        /**
+         * A failure here means the host will never see this setting. It must not be swallowed:
+         * [ModulePrefs.publish] records the reason, and the settings UI surfaces it.
+         */
+        private fun publishChecked() {
+            try {
+                publish(local)
+            } catch (_: Throwable) {
+                // recorded in ModulePrefs.lastPublishError
+            }
         }
     }
 }
