@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId "balti.xposed.pixelifygooglephotos"
-        minSdk 21
+        minSdk 26
         targetSdk 35
         versionCode 7
         versionName "4.3-lsp102"
