@@ -51,7 +51,12 @@ class ActivityMain: AppCompatActivity(R.layout.activity_main) {
 
     private fun showRebootSnack(){
         val rootView = findViewById<ScrollView>(R.id.root_view_for_snackbar)
-        Snackbar.make(rootView, R.string.please_force_stop_google_photos, Snackbar.LENGTH_SHORT).show()
+        val failure = ModulePrefs.lastPublishError
+        if (failure != null) {
+            Snackbar.make(rootView, "设置未写入宿主：$failure（需 LSPosed 已启用本模块）", Snackbar.LENGTH_LONG).show()
+        } else {
+            Snackbar.make(rootView, R.string.please_force_stop_google_photos, Snackbar.LENGTH_SHORT).show()
+        }
     }
 
     /**
