@@ -109,7 +109,8 @@ jobs:
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
-            "$APK" balti.xposed.pixelifygooglephotos.PixelifyModule \
+            "$APK" balti.xposed.pixelifygooglephotos \
+            balti.xposed.pixelifygooglephotos.PixelifyModule \
             com.google.android.apps.photos \
             app/build/test-results/testDebugUnitTest
 

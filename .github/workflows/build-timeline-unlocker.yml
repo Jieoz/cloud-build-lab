@@ -115,7 +115,8 @@ jobs:
           "$BT/aapt" dump badging "$APK" | head -5 || true
           # Shared gate: packaging, minApiVersion, legacy markers, fixed signer, tests.
           bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
-            "$APK" io.github.timeline_unlocker.xposed.MainHook \
+            "$APK" io.github.timeline_unlocker.xposed \
+            io.github.timeline_unlocker.xposed.MainHook \
             com.google.android.apps.maps \
             xposed/build/test-results/testDebugUnitTest
           # Project-specific: the hook entry points must actually be in the dex.

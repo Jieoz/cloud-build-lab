@@ -77,7 +77,8 @@ jobs:
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
-            "$APK" com.jieoz.rimetmock.RimetMockModule com.alibaba.android.rimet
+            "$APK" com.jieoz.rimetmock \
+            com.jieoz.rimetmock.RimetMockModule com.alibaba.android.rimet
 
       # Project-specific: this rewrite exists because of these two bundles.
       - name: Verify nothing extra was bundled

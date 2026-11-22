@@ -4,27 +4,45 @@
 # One implementation, one class of problem: contract + identity + test evidence.
 # Workflows call this instead of growing their own copies of the same assertions.
 #
-#   verify_lsp_artifact.sh <apk> <entry-class> <scope-csv> [test-results-dir]
+#   verify_lsp_artifact.sh <apk> <package> <entry-class> <scope-csv> [test-results-dir]
 #
 # Checks
 #   1. libxposed packaging: META-INF/xposed/{java_init.list,module.prop,scope.list}
 #   2. minApiVersion >= 102 (LSPosed 2.3 removes the legacy XSharedPreferences bridge)
-#   3. no legacy markers: assets/xposed_init, xposedmodule/xposedsharedprefs/
-#      xposedminversion/xposedscope meta-data in the merged manifest
-#   4. signer == the one shared fixed key (in-place upgrade must survive)
+#   3. harmful legacy markers only (xposedsharedprefs/xposedminversion); an old
+#      assets/xposed_init is tolerated when it names the same entry class
+#   4. signer == the digest pinned for this package in signing/registry.json.
+#      A per-module pin, not one global key: every module must keep the key its
+#      installed copy already has, otherwise the update needs an uninstall.
 #   5. if a test-results dir is given: it must exist, contain XML, and report
 #      tests > 0 with 0 failures (a green task with zero tests proves nothing)
 set -euo pipefail
 
-APK=${1:?usage: verify_lsp_artifact.sh <apk> <entry-class> <scope-csv> [test-results-dir]}
-ENTRY_EXPECTED=${2:?entry class required}
-SCOPE_EXPECTED=${3:?scope csv required}
-RESULTS_DIR=${4:-}
+APK=${1:?usage: verify_lsp_artifact.sh <apk> <package> <entry-class> <scope-csv> [test-results-dir]}
+PACKAGE=${2:?package name required}
+ENTRY_EXPECTED=${3:?entry class required}
+SCOPE_EXPECTED=${4:?scope csv required}
+RESULTS_DIR=${5:-}
 
-FIXED_SIGNER=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
+REGISTRY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/signing/registry.json"
 MIN_API=102
 
 fail() { echo "::error::$*"; exit 1; }
+
+test -f "$REGISTRY" || fail "signing registry missing: $REGISTRY"
+EXPECTED_SIGNER=$(python3 - "$REGISTRY" "$PACKAGE" <<'PY'
+import json, sys
+reg = json.load(open(sys.argv[1]))
+pkg = sys.argv[2]
+prof = reg.get('modules', {}).get(pkg)
+if not prof:
+    sys.exit(f"package {pkg} has no signing profile in registry.json")
+entry = reg['profiles'].get(prof)
+if not entry:
+    sys.exit(f"profile {prof} is not defined in registry.json")
+print(entry['certificateSha256'].lower())
+PY
+) || fail "cannot resolve the pinned signer for $PACKAGE"
 
 test -f "$APK" || fail "artifact not found: $APK"
 BT=""
@@ -113,8 +131,16 @@ PY
 )
   [ -n "$ACTUAL" ] || fail "cannot read a v1 signer (no apksigner on this host, no PKCS#7 block)"
 fi
-[ "$ACTUAL" = "$FIXED_SIGNER" ] \
-  || fail "APK is not signed with the fixed key (got $ACTUAL). In-place upgrade would fail."
+[ "$ACTUAL" = "$EXPECTED_SIGNER" ] \
+  || fail "APK is signed by $ACTUAL but $PACKAGE is pinned to $EXPECTED_SIGNER. A different cert means the phone must uninstall before updating — sign with the module's own key."
+
+# The APK really is the package the registry entry describes.
+python3 - "$APK" "$PACKAGE" <<'PY' || fail "APK does not carry package $PACKAGE"
+import sys, zipfile
+man = zipfile.ZipFile(sys.argv[1]).read("AndroidManifest.xml")
+pkg = sys.argv[2]
+sys.exit(0 if (pkg.encode("utf-16-le") in man or pkg.encode("utf-8") in man) else 1)
+PY
 
 # ---- 4. test evidence -------------------------------------------------------
 # A project may have no unit suite at all; what is forbidden is claiming green

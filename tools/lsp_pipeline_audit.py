@@ -34,6 +34,25 @@ SSH = [
 ]
 
 FIXED_SIGNER = "1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d"
+REGISTRY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "signing", "registry.json")
+
+
+def load_pinned():
+    """package -> pinned certificate digest, from the same registry the gate uses."""
+    try:
+        reg = json.load(open(REGISTRY))
+    except Exception:
+        return {}
+    out = {}
+    for pkg, profile in reg.get("modules", {}).items():
+        entry = reg.get("profiles", {}).get(profile)
+        if entry and entry.get("certificateSha256"):
+            out[pkg] = entry["certificateSha256"].lower()
+    return out
+
+
+PINNED_SIGNERS = load_pinned()
 LEGACY_FLAGS_HARD = ("xposedsharedprefs", "xposedminversion")
 LEGACY_FLAGS_SOFT = ("xposedmodule", "xposeddescription", "xposedscope")
 MIN_API = 102
@@ -162,10 +181,15 @@ def main():
         }
         target = row["problems"] if row["own"] else row["advisories"]
         if row["own"]:
+            pinned = PINNED_SIGNERS.get(row["package"])
             if digest is None:
-                target.append("no v1 signature; cannot verify against the fixed key")
-            elif digest != FIXED_SIGNER:
-                target.append("NOT the fixed key: " + (subject or "?"))
+                target.append("no v1 signature; cannot verify against the pinned key")
+            elif pinned is None:
+                target.append("no signing profile pinned in signing/registry.json "
+                              "(cannot prove upgrades stay in place)")
+            elif digest != pinned:
+                target.append(f"signer {digest[:8]}… is not the pinned key {pinned[:8]}…: "
+                              "the next update needs an uninstall")
         if meta["api"] is None:
             target.append("no libxposed module.prop (legacy-only module)")
         elif meta["api"] < MIN_API:

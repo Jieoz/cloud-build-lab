@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "note": "Signing identity per module. The digest here is the ONLY accepted signer for that package: a build whose cert differs is rejected, because a different cert means the phone must uninstall before it can update. Modules keep the key they were first published with; new modules use the shared 'fixed' key. Private keys never live in this repo.",
+  "profiles": {
+    "fixed": {
+      "certificateSha256": "1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d",
+      "subject": "C=CN, O=Jieoz, CN=x video catcher",
+      "secretPrefix": "XVC_",
+      "keystoreAlias": "xvc"
+    },
+    "spotify-legacyxt": {
+      "certificateSha256": "6a50a2b477724fbadf98f36d30b6955df1d7c55d43576282b82050ad397ab2ab",
+      "subject": "CN=Android Debug, O=Android, C=US",
+      "secretPrefix": "SPOTIFY_LEGACYXT_",
+      "keystoreAlias": "androiddebugkey",
+      "note": "Installed on XT2175 as 2.0.6; kept so upgrades stay in place. Built on the bj host from signing-policy.json."
+    }
+  },
+  "modules": {
+    "balti.xposed.pixelifygooglephotos": "fixed",
+    "balti.xposed.pixelifygooglephotos.lsp102": "fixed",
+    "com.jieoz.rimetmock": "fixed",
+    "io.github.timeline_unlocker.xposed": "fixed",
+    "com.jieoz.spotaudioprobe": "spotify-legacyxt"
+  }
+}
