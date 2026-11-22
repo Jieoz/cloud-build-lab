@@ -43,16 +43,18 @@ def load_pinned():
     try:
         reg = json.load(open(REGISTRY))
     except Exception:
-        return {}
+        return {}, FIXED_SIGNER
+    default = reg.get("defaultProfile")
+    default_digest = reg.get("profiles", {}).get(default, {}).get("certificateSha256", FIXED_SIGNER)
     out = {}
     for pkg, profile in reg.get("modules", {}).items():
         entry = reg.get("profiles", {}).get(profile)
         if entry and entry.get("certificateSha256"):
             out[pkg] = entry["certificateSha256"].lower()
-    return out
+    return out, default_digest.lower()
 
 
-PINNED_SIGNERS = load_pinned()
+PINNED_SIGNERS, DEFAULT_SIGNER = load_pinned()
 LEGACY_FLAGS_HARD = ("xposedsharedprefs", "xposedminversion")
 LEGACY_FLAGS_SOFT = ("xposedmodule", "xposeddescription", "xposedscope")
 MIN_API = 102
@@ -181,12 +183,9 @@ def main():
         }
         target = row["problems"] if row["own"] else row["advisories"]
         if row["own"]:
-            pinned = PINNED_SIGNERS.get(row["package"])
+            pinned = PINNED_SIGNERS.get(row["package"], DEFAULT_SIGNER)
             if digest is None:
                 target.append("no v1 signature; cannot verify against the pinned key")
-            elif pinned is None:
-                target.append("no signing profile pinned in signing/registry.json "
-                              "(cannot prove upgrades stay in place)")
             elif digest != pinned:
                 target.append(f"signer {digest[:8]}… is not the pinned key {pinned[:8]}…: "
                               "the next update needs an uninstall")

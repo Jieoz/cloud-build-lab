@@ -34,9 +34,12 @@ EXPECTED_SIGNER=$(python3 - "$REGISTRY" "$PACKAGE" <<'PY'
 import json, sys
 reg = json.load(open(sys.argv[1]))
 pkg = sys.argv[2]
-prof = reg.get('modules', {}).get(pkg)
+# Fixed key is the default for every module. A package is only exempt when it is
+# written down in 'modules' with another profile, so a stray debug-signed build
+# can never slip through as "unregistered".
+prof = reg.get('modules', {}).get(pkg, reg.get('defaultProfile'))
 if not prof:
-    sys.exit(f"package {pkg} has no signing profile in registry.json")
+    sys.exit(f"no signing profile for {pkg} and no defaultProfile in registry.json")
 entry = reg['profiles'].get(prof)
 if not entry:
     sys.exit(f"profile {prof} is not defined in registry.json")

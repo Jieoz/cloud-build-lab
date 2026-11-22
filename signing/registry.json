@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "note": "Signing identity per module. The digest here is the ONLY accepted signer for that package: a build whose cert differs is rejected, because a different cert means the phone must uninstall before it can update. Modules keep the key they were first published with; new modules use the shared 'fixed' key. Private keys never live in this repo.",
+  "defaultProfile": "fixed",
+  "note": "Every module signs with the shared fixed key unless it is explicitly listed in 'modules' with another profile. An exception only exists to preserve in-place upgrades for a package that is already installed under a different cert; it must be written down here, never chosen at build time. The private keys never live in this repo.",
   "profiles": {
     "fixed": {
       "certificateSha256": "1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d",
