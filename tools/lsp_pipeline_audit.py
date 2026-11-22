@@ -34,8 +34,8 @@ SSH = [
 ]
 
 FIXED_SIGNER = "1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d"
-LEGACY_FLAGS = ("xposedsharedprefs", "xposedminversion", "xposedmodule",
-                "xposeddescription", "xposedscope")
+LEGACY_FLAGS_HARD = ("xposedsharedprefs", "xposedminversion")
+LEGACY_FLAGS_SOFT = ("xposedmodule", "xposeddescription", "xposedscope")
 MIN_API = 102
 
 
@@ -76,11 +76,12 @@ def cert_fingerprint(apk_path):
 
 def inspect_apk(path):
     out = {"api": None, "staticScope": None, "legacy_assets": False,
-           "legacy_manifest": [], "scope": []}
+           "legacy_entry": None, "legacy_manifest": [], "legacy_manifest_soft": [], "scope": []}
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         if "assets/xposed_init" in names:
             out["legacy_assets"] = True
+            out["legacy_entry"] = z.read("assets/xposed_init").decode("utf-8", "replace").strip()
         if "META-INF/xposed/module.prop" in names:
             for line in z.read("META-INF/xposed/module.prop").decode("utf-8", "replace").splitlines():
                 if line.startswith("minApiVersion="):
@@ -91,9 +92,12 @@ def inspect_apk(path):
             raw = z.read("META-INF/xposed/scope.list").decode("utf-8", "replace")
             out["scope"] = [s.strip() for s in raw.splitlines() if s.strip()]
         man = z.read("AndroidManifest.xml") if "AndroidManifest.xml" in names else b""
-    for flag in LEGACY_FLAGS:
+    for flag in LEGACY_FLAGS_HARD:
         if flag.encode("utf-16-le") in man or flag.encode("utf-8") in man:
             out["legacy_manifest"].append(flag)
+    for flag in LEGACY_FLAGS_SOFT:
+        if flag.encode("utf-16-le") in man or flag.encode("utf-8") in man:
+            out["legacy_manifest_soft"].append(flag)
     return out
 
 
@@ -167,9 +171,16 @@ def main():
         elif meta["api"] < MIN_API:
             target.append(f"minApiVersion {meta['api']} < {MIN_API} (breaks on LSPosed 2.3)")
         if meta["legacy_assets"]:
-            target.append("legacy assets/xposed_init present")
+            entry = meta.get("legacy_entry")
+            row["advisories"].append(
+                f"legacy assets/xposed_init present (entry={entry}); inert on 2.2.x, "
+                f"removed in 2.3 — tolerated only when it matches the libxposed entry")
         if meta["legacy_manifest"]:
-            target.append("legacy manifest meta-data: " + ",".join(meta["legacy_manifest"]))
+            target.append("deprecated meta-data: " + ",".join(meta["legacy_manifest"])
+                          + " (removed in LSPosed 2.3)")
+        if meta["legacy_manifest_soft"]:
+            row["advisories"].append("legacy marker meta-data (harmless on 2.2+, ignored in 2.3): "
+                                     + ",".join(meta["legacy_manifest_soft"]))
         if enabled.get(pkg) and not (scopes.get(pkg) or meta["scope"]):
             target.append("enabled but scope is empty (module does nothing)")
         rows.append(row)

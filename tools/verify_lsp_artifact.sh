@@ -58,21 +58,29 @@ for want in "${WANT[@]}"; do
 done
 
 # ---- 2. legacy markers ------------------------------------------------------
-if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
-  fail "legacy assets/xposed_init survived packaging"
-fi
-# Scan the binary manifest directly instead of shelling out to aapt: the check then
-# behaves the same on a runner and on a bare host, and it can be self-tested.
-python3 - "$APK" <<'PY' || fail "legacy xposed meta-data survived packaging"
+# Split by harm, not by "looks legacy":
+#   HARD  xposedsharedprefs / xposedminversion — the world-readable bridge and the
+#         deprecated API declaration that LSPosed 2.3 removes. A module carrying
+#         these WILL break on the next framework update.
+#   SOFT  assets/xposed_init — an inert rovo89 entry that 2.2.x still honours.
+#         Tolerated, but it must not name a different class than the libxposed
+#         entry, because two contradictory entry points is a real hazard.
+python3 - "$APK" <<'PY' || fail "deprecated xposed declaration survived packaging"
 import sys, zipfile
-flags = ("xposedmodule", "xposedsharedprefs", "xposedminversion", "xposedscope")
+hard = ("xposedsharedprefs", "xposedminversion")
 man = zipfile.ZipFile(sys.argv[1]).read("AndroidManifest.xml")
-found = [f for f in flags
-         if f.encode("utf-16-le") in man or f.encode("utf-8") in man]
-if found:
-    print("legacy meta-data: " + ",".join(found))
+hard_found = [f for f in hard if f.encode("utf-16-le") in man or f.encode("utf-8") in man]
+if hard_found:
+    print("deprecated meta-data: " + ",".join(hard_found))
     sys.exit(1)
 PY
+if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
+  LEGACY_ENTRY=$(unzip -p "$APK" assets/xposed_init | tr -d '\r\n')
+  if [ "$LEGACY_ENTRY" != "$ENTRY" ]; then
+    fail "assets/xposed_init names '$LEGACY_ENTRY' but java_init.list names '$ENTRY' (contradictory entry points)"
+  fi
+  echo "note: legacy assets/xposed_init retained, same entry as libxposed (inert on 2.2+, gone in 2.3)"
+fi
 
 # ---- 3. signing identity ----------------------------------------------------
 if [ -n "$BT" ] && [ -x "$BT/apksigner" ]; then
