@@ -16,6 +16,7 @@ on:
       - 'projects/timeline-unlocker/**'
       - '.github/workflows/build-timeline-unlocker.yml'
       - 'tools/**'
+      - 'signing/**'
 
 jobs:
   build:

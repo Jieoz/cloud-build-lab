@@ -15,6 +15,7 @@ on:
     paths:
       - 'projects/rimet-mock/**'
       - 'tools/**'
+      - 'signing/**'
       - '.github/workflows/build-rimet-mock.yml'
 
 jobs:

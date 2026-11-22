@@ -16,6 +16,7 @@ on:
       - 'projects/pixelify-lsp102/**'
       - '.github/workflows/build-pixelify-lsp102.yml'
       - 'tools/**'
+      - 'signing/**'
 
 jobs:
   build:

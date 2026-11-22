@@ -16,6 +16,7 @@ on:
       - 'projects/pixelify-google-photos/**'
       - '.github/workflows/build-pixelify-google-photos.yml'
       - 'tools/**'
+      - 'signing/**'
 
 jobs:
   build:
