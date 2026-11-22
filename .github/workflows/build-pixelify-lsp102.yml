@@ -15,6 +15,7 @@ on:
     paths:
       - 'projects/pixelify-lsp102/**'
       - '.github/workflows/build-pixelify-lsp102.yml'
+      - 'tools/**'
 
 jobs:
   build:
@@ -71,43 +72,28 @@ jobs:
           PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
         run: gradle --no-daemon testDebugUnitTest assembleDebug
 
-      - name: Verify libxposed module contract in APK
+      - name: Verify artifact contract (shared gate)
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
+            "$APK" balti.xposed.pixelifygooglephotos.lsp102.PixelifyModule \
+            com.google.android.apps.photos \
+            app/build/test-results/testDebugUnitTest
+
+      # Project-specific: this fork must ship under its own package id and label,
+      # and must never bundle the framework API.
+      - name: Verify packaging identity
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "apk=$APK build-tools=$BT"
-          ENTRY=$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')
-          test "$ENTRY" = "balti.xposed.pixelifygooglephotos.lsp102.PixelifyModule"
-          PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
-          printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
-          printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
-          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
-          test "$SCOPE" = "com.google.android.apps.photoscom.jieoz.pixelifygooglephotos"
-          if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
-            echo "::error::legacy assets/xposed_init survived packaging"; exit 1
-          fi
           if unzip -l "$APK" | grep -qE 'io/github/libxposed/api/XposedModule'; then
             echo "::error::libxposed api bundled into APK"; exit 1
-          fi
-          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
-          if grep -E 'xposedmodule|xposedsharedprefs|xposedminversion' /tmp/manifest.txt; then
-            echo "::error::legacy xposed meta-data survived packaging"; exit 1
           fi
           BADGE=$("$BT/aapt" dump badging "$APK")
           echo "$BADGE" | grep -q "package: name='com.jieoz.pixelifygooglephotos'"
           echo "$BADGE" | grep -q "application-label:'Pixelify GPhotos'"
-          echo "libxposed contract OK: $ENTRY package=lsp102 scope=$SCOPE"
-
-      - name: Record signer
-        run: |
-          set -euo pipefail
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" | tee /tmp/signer.txt | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
-          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
-          echo "signer=$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED" || { echo "::error::not the fixed key ($ACTUAL)"; exit 1; }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

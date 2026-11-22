@@ -15,6 +15,7 @@ on:
     paths:
       - 'projects/pixelify-google-photos/**'
       - '.github/workflows/build-pixelify-google-photos.yml'
+      - 'tools/**'
 
 jobs:
   build:
