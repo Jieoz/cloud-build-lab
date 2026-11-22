@@ -47,7 +47,15 @@ test -n "$API" || fail "module.prop has no minApiVersion"
 test "$API" -ge "$MIN_API" || fail "minApiVersion $API < $MIN_API: breaks on LSPosed 2.3"
 
 SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list 2>/dev/null | tr -d '\r' | paste -sd, -)
-test "$SCOPE" = "$SCOPE_EXPECTED" || fail "scope.list is '$SCOPE', expected '$SCOPE_EXPECTED'"
+# Requires every declared target, not literal equality: a module may legitimately
+# also scope its own package (settings UI / self-diagnostics).
+IFS=',' read -ra WANT <<< "$SCOPE_EXPECTED"
+for want in "${WANT[@]}"; do
+  case ",$SCOPE," in
+    *",$want,"*) ;;
+    *) fail "scope.list is '$SCOPE', missing required '$want'" ;;
+  esac
+done
 
 # ---- 2. legacy markers ------------------------------------------------------
 if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
