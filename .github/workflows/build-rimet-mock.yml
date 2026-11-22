@@ -71,47 +71,24 @@ jobs:
           PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify libxposed module contract in APK
+      - name: Verify artifact contract (shared gate)
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "apk=$APK build-tools=$BT"
-          # framework loads the module by the class named here; a typo = silent no-op
-          ENTRY=$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')
-          test "$ENTRY" = "com.jieoz.rimetmock.RimetMockModule"
-          PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
-          printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
-          printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
-          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
-          echo "$SCOPE" | grep -q 'com.alibaba.android.rimet'
-          # legacy entry/prefs must be gone
-          if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
-            echo "::error::legacy assets/xposed_init survived packaging"; exit 1
-          fi
-          # the module must NOT bundle the libxposed API (framework provides it)
+          bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
+            "$APK" com.jieoz.rimetmock.RimetMockModule com.alibaba.android.rimet
+
+      # Project-specific: this rewrite exists because of these two bundles.
+      - name: Verify nothing extra was bundled
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
           if unzip -l "$APK" | grep -qE 'io/github/libxposed/api/XposedModule'; then
-            echo "::error::libxposed api bundled into APK"; exit 1
+            echo "::error::libxposed api bundled into APK (framework provides it)"; exit 1
           fi
-          # and must NOT bundle any AMap SDK — the whole point of the rewrite
           if unzip -l "$APK" | grep -qE 'com/amap/api/'; then
             echo "::error::AMap SDK bundled into APK"; exit 1
           fi
-          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
-          if grep -E 'xposedmodule|xposedsharedprefs|xposedminversion' /tmp/manifest.txt; then
-            echo "::error::legacy xposed meta-data survived packaging"; exit 1
-          fi
-          echo "libxposed contract OK: $ENTRY minApiVersion=102 scope=$SCOPE (no AMap SDK, no api bundle)"
-
-      - name: Verify APK signature is the fixed key
-        run: |
-          set -euo pipefail
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" | grep -m1 -i 'certificate SHA-256 digest' | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
-          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
-          echo "signer=$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED" || { echo "::error::not the fixed key ($ACTUAL)"; exit 1; }
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

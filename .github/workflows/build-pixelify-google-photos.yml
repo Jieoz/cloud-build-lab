@@ -103,51 +103,14 @@ jobs:
           PGP_KEY_PASSWORD: ${{ secrets.XVC_KEY_PASSWORD }}
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify libxposed module contract in APK
+      - name: Verify artifact contract (shared gate)
         run: |
           set -euo pipefail
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "apk=$APK build-tools=$BT"
-          ENTRY=$(unzip -p "$APK" META-INF/xposed/java_init.list | tr -d '\r\n')
-          test "$ENTRY" = "balti.xposed.pixelifygooglephotos.PixelifyModule"
-          PROP=$(unzip -p "$APK" META-INF/xposed/module.prop)
-          printf '%s\n' "$PROP" | grep -qx 'minApiVersion=102'
-          printf '%s\n' "$PROP" | grep -qx 'staticScope=true'
-          SCOPE=$(unzip -p "$APK" META-INF/xposed/scope.list | tr -d '\r\n')
-          test "$SCOPE" = "com.google.android.apps.photos"
-          if unzip -l "$APK" | grep -q 'assets/xposed_init'; then
-            echo "::error::legacy assets/xposed_init survived packaging"
-            exit 1
-          fi
-          "$BT/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/manifest.txt
-          if grep -E 'xposedmodule|xposedsharedprefs|xposedminversion' /tmp/manifest.txt; then
-            echo "::error::legacy xposed meta-data survived packaging"
-            exit 1
-          fi
-          grep -q 'android:description' /tmp/manifest.txt
-          echo "libxposed contract OK: $ENTRY minApiVersion=102 scope=$SCOPE"
-
-      # Gradle applies the fixed key conditionally, so a missing or misread env var
-      # silently falls back to the per-runner debug key and produces another APK that
-      # cannot be installed over the last one. Pin the expected certificate digest.
-      - name: Verify APK signature is the fixed key
-        run: |
-          set -euo pipefail
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" \
-            | grep -m1 -i 'certificate SHA-256 digest' \
-            | sed -E 's/.*digest: *//' | tr 'A-Z' 'a-z')
-          # SHA-256 of the shared fixed key. If this ever changes, every installed copy
-          # must be uninstalled first — treat it as frozen.
-          EXPECTED=1815c41d47083714332df8399f97d4abcaad8803f7a7d6b1aed25507491b8d2d
-          echo "signer=$ACTUAL"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::APK is not signed with the fixed release key (got $ACTUAL, want $EXPECTED). In-place upgrade would fail."
-            exit 1
-          fi
-          echo "signature OK: fixed key, in-place upgrade preserved"
+          bash "$GITHUB_WORKSPACE/tools/verify_lsp_artifact.sh" \
+            "$APK" balti.xposed.pixelifygooglephotos.PixelifyModule \
+            com.google.android.apps.photos \
+            app/build/test-results/testDebugUnitTest
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
