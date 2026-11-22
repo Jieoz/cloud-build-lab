@@ -19,6 +19,7 @@
   "modules": {
     "balti.xposed.pixelifygooglephotos": "fixed",
     "balti.xposed.pixelifygooglephotos.lsp102": "fixed",
+    "com.jieoz.pixelifygooglephotos": "fixed",
     "com.jieoz.rimetmock": "fixed",
     "io.github.timeline_unlocker.xposed": "fixed",
     "com.jieoz.spotaudioprobe": "spotify-legacyxt"
