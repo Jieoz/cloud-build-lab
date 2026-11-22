@@ -22,6 +22,15 @@
     "com.jieoz.pixelifygooglephotos": "fixed",
     "com.jieoz.rimetmock": "fixed",
     "io.github.timeline_unlocker.xposed": "fixed",
+    "com.jiesa.xvideocatcher": "fixed",
+    "com.jieoz.ytprobe": "fixed",
+    "com.jieoz.sysprobe": "fixed",
+    "com.jieoz.spotfreezerscope": "fixed",
+    "com.jieoz.audiocutter": "fixed",
+    "com.jieoz.ctsshare": "fixed",
     "com.jieoz.spotaudioprobe": "spotify-legacyxt"
+  },
+  "builtElsewhere": {
+    "com.jieoz.lanmediawall.player": "69ec70e5… — its own keystore lives in Jieoz/lan-media-wall secrets and that repo gates on resolve_release_cert.sh"
   }
 }
